@@ -1,0 +1,3 @@
+#!/bin/sh
+KOLOM_PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$KOLOM_PROJECT_DIR/build/Kolom.app/Contents/MacOS/kolomctl" "$@"

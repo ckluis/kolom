@@ -1,0 +1,28 @@
+name: Bug report
+description: Something Kolom did to your windows or displays that it should not have
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: Which apps, which display, what you scrolled, dragged or typed.
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      placeholder: macOS version, Mac model, monitors and how they connect (USB-C, HDMI, DisplayLink dock), Kolom version.
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Health check output
+      description: Run `python3 -I scripts/live-check.py` from the repo while Kolom is running and paste the result.
+      render: text

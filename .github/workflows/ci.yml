@@ -1,0 +1,14 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core checks
+        run: ./scripts/test.sh
+      - name: Build the app (ad hoc signed)
+        run: ./scripts/build-app.sh

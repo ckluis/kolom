@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kolom — a scrolling tiling window manager for macOS</title>
+<meta name="description" content="Kolom tiles your real Mac windows into a strip of columns that scrolls sideways, one strip per display. Free, open source (MIT), native Swift/AppKit. Ask Kolom runs on device. Agent-ready with a CLI and MCP server.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#080907">
+<meta property="og:title" content="Kolom — every window, in its column">
+<meta property="og:description" content="A native, open-source scrolling-strip tiling window manager for macOS. One strip per display. Agent-ready.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ckluis.github.io/kolom/">
+<meta property="og:image" content="https://ckluis.github.io/kolom/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/kolom.css">
+</head>
+<body>
+<a class="skip" href="#demo">Skip to the demo</a>
+
+<header class="nav" id="top">
+  <a class="brand" href="#top" aria-label="Kolom home">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="8.5" fill="currentColor" opacity=".08"/><rect x="5.5" y="7" width="6" height="18" rx="2" fill="currentColor"/><rect x="13.5" y="7" width="6" height="8" rx="2" fill="currentColor"/><rect x="13.5" y="17" width="6" height="8" rx="2" fill="currentColor"/><rect x="21.5" y="7" width="6" height="18" rx="2" fill="var(--lime)"/></svg>
+    <span>Kolom</span>
+  </a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="#demo">Demo</a>
+    <a href="#displays">Displays</a>
+    <a href="#agents">Agents</a>
+    <a href="#safety">Safety</a>
+    <a href="#install">Install</a>
+  </nav>
+  <a class="btn btn-ghost btn-sm nav-gh" href="https://github.com/ckluis/kolom">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.66 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 .2"/></svg>
+    <span>Star</span>
+  </a>
+</header>
+
+<main>
+<!-- ============ HERO ============ -->
+<section class="hero stage" aria-labelledby="hero-h">
+  <div class="hero-copy">
+    <p class="eyebrow"><span class="pill">Alpha</span> Open source · MIT · macOS 13+</p>
+    <h1 id="hero-h">Every window,<br>in its <em>column.</em></h1>
+    <p class="lede">Kolom tiles your real Mac windows into a strip that scrolls sideways — one strip per display. Swipe through your work. Nothing piles up. Nothing gets lost.</p>
+    <div class="ctas">
+      <a class="btn btn-lime" href="#install">Install with your agent <span aria-hidden="true">→</span></a>
+      <a class="btn btn-ghost" href="https://github.com/ckluis/kolom"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .8l2.2 4.6 5 .7-3.6 3.5.9 5L8 12.2l-4.5 2.4.9-5L.8 6.1l5-.7Z"/></svg> Star on GitHub</a>
+    </div>
+    <ul class="hero-facts" aria-label="At a glance">
+      <li>Native Swift &amp; AppKit</li><li>Public Accessibility APIs only</li><li>No telemetry</li><li>Ask Kolom, on device</li><li>CLI + MCP for agents</li>
+    </ul>
+  </div>
+  <div class="hv" aria-hidden="true">
+    <div class="hv-world"><div class="hv-strip"></div></div>
+    <div class="hv-frame">
+      <div class="hv-menubar"><b>Code</b><span>File&nbsp;&nbsp; Edit&nbsp;&nbsp; Selection&nbsp;&nbsp; View&nbsp;&nbsp; Go</span><i></i><em>Sun 26 Oct 9:41</em></div>
+      <div class="hv-rail"></div>
+    </div>
+    <div class="hv-caption"><span class="kc">⌥</span><span class="kc">→</span> <span class="hv-cap-t">The strip keeps going past the edge of your screen.</span></div>
+  </div>
+</section>
+
+<!-- ============ GUIDED DEMO ============ -->
+<section class="demo stage" id="demo" aria-labelledby="demo-h">
+  <div class="sec-head wrap center">
+    <p class="kicker"><span>01</span> The demo</p>
+    <h2 id="demo-h">Six moves.<br><em>That’s Kolom.</em></h2>
+    <p class="sec-lede">One Mac, six moves. Do them yourself, or sit back and watch.</p>
+  </div>
+
+  <div class="dm" id="dm">
+    <div class="dm-mac">
+      <div class="dm-bezel">
+        <div class="dm-fit" tabindex="0" role="application" aria-roledescription="simulated Mac screen" aria-label="Kolom, simulated. Click a rail icon to focus a window. Swipe or drag sideways to scroll. Option-arrow keys move between columns, Option-1 to 9 focus a window, Option-D shows the desktop, Option-K opens Ask Kolom, Option-M opens Kolom’s commands.">
+          <noscript><p style="color:#fff;padding:24px">The demo needs JavaScript.</p></noscript>
+        </div>
+      </div>
+      <div class="dm-deck" aria-hidden="true"><i></i></div>
+    </div>
+
+    <div class="dm-cap" aria-live="polite">
+      <div class="dm-cap-t">
+        <b class="dm-title">Click an icon. Kolom glides there.</b>
+        <p class="dm-hint"><i aria-hidden="true"></i><span>Click <b>Music</b> in the rail.</span></p>
+      </div>
+      <div class="dm-cap-a">
+        <span class="dm-xs"></span>
+        <button class="dm-show" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8.2 6.6v6.8l5.4-3.4Z" fill="currentColor"/></svg><span>Show me</span></button>
+      </div>
+    </div>
+
+    <div class="dm-chs" role="group" aria-label="Demo chapters">
+      <button class="dm-ch" type="button" data-ch="0" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8.5v11l3-3 2.2 4.6 2-1-2.2-4.5H18Z" fill="currentColor" fill-opacity=".14"/><path d="M5.2 6.2 3.6 4.6M9 4.6V2.4M12.8 6.2l1.6-1.6M4.6 10H2.4"/></svg><span><em>1</em>Click</span><u></u></button>
+      <button class="dm-ch" type="button" data-ch="1" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="2.6" fill="currentColor" fill-opacity=".14"/><circle cx="15" cy="12" r="2.6" fill="currentColor" fill-opacity=".14"/><path d="M5.5 7.5 2.5 12l3 4.5M18.5 7.5l3 4.5-3 4.5"/></svg><span><em>2</em>Swipe</span><u></u></button>
+      <button class="dm-ch" type="button" data-ch="2" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="6" y="3" width="12" height="5.2" rx="1.6"/><rect x="6" y="9.4" width="12" height="5.2" rx="1.6" fill="currentColor" fill-opacity=".14"/><rect x="6" y="15.8" width="12" height="5.2" rx="1.6"/></svg><span><em>3</em>Stack</span><u></u></button>
+      <button class="dm-ch" type="button" data-ch="3" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13h4l2.5-6 4 11 3-8 1.5 3h4"/></svg><span><em>4</em>Inspect</span><u></u></button>
+      <button class="dm-ch" type="button" data-ch="4" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2.5l2.1 5.6 5.6 2.1-5.6 2.1L11 17.9l-2.1-5.6-5.6-2.1 5.6-2.1Z" fill="currentColor"/><path d="M18.4 14.6l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9Z" fill="currentColor"/></svg><span><em>5</em>Ask</span><u></u></button>
+      <button class="dm-ch" type="button" data-ch="5" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="6" width="3.2" height="12" rx="1" fill="currentColor" fill-opacity=".14"/><rect x="13.8" y="6" width="3.2" height="12" rx="1" fill="currentColor" fill-opacity=".14"/><path d="M3.5 9.5a9 9 0 0 1 3-4.6M20.5 14.5a9 9 0 0 1-3 4.6"/></svg><span><em>6</em>Pause</span><u></u></button>
+    </div>
+
+    <p class="dm-ai" aria-live="polite"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2l1.7 4.6 4.6 1.7-4.6 1.7L10 14.8l-1.7-4.6L3.7 8.5l4.6-1.7Z" fill="currentColor"/><path d="M15.6 13.2l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7Z" fill="currentColor"/></svg><span>Understood by Apple’s on-device model. Nothing leaves your Mac, and there’s no subscription. Needs macOS 26 with Apple Intelligence.</span></p>
+
+
+    <div class="dm-foot" aria-label="Keyboard shortcuts">
+      <span><kbd>⌥←</kbd><kbd>⌥→</kbd> column</span>
+      <span><kbd>⌥1</kbd>–<kbd>⌥9</kbd> window</span>
+      <span><kbd>⌥D</kbd> desktop</span>
+      <span><kbd>⌥K</kbd> Ask Kolom</span>
+      <span><kbd>⌥M</kbd> commands</span>
+      <span><kbd>⌃⌥K</kbd> move palette</span>
+    </div>
+    <p class="dm-note">A browser simulation of Kolom. Click the screen and the shortcuts work here too. Performance figures are made up.</p>
+  </div>
+</section>
+
+<!-- ============ DISPLAYS ============ -->
+<section class="multi stage" id="displays" aria-labelledby="d-h">
+  <div class="wrap multi-in">
+    <div>
+      <p class="kicker"><span>02</span> Multiple displays</p>
+      <h2 id="d-h">And every display gets <em>its own strip.</em></h2>
+      <p>While Kolom manages, it sets your displays corner to corner — a display staircase, an idea from <a href="https://github.com/qeude/Defi">Defi</a> (MIT) — so columns slide cleanly off every edge. Your pointer still crosses monitors exactly as your desk is laid out.</p>
+      <p class="plug"><b>Unplug a monitor</b> and its windows join the main display. <b>Plug it back in</b> and they go home.</p>
+    </div>
+    <div class="mx" aria-hidden="true">
+      <div class="mx-lab"><span class="l1">Your desk</span><span class="l2">While Kolom manages: corner to corner</span><span class="l3">Pause or quit: your desk is back</span></div>
+      <div class="mx-ghost"></div>
+      <div class="mx-d mx-a"><div class="mx-rail"></div><div class="mx-strip"><i></i><i></i><i></i><i></i></div></div>
+      <div class="mx-d mx-b"><div class="mx-rail"></div><div class="mx-strip"><i></i><i></i><i></i></div></div>
+      <svg class="mx-warp" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M55.2 56 C 60 53, 52 27, 57.4 21"/></svg>
+      <svg class="mx-cur" viewBox="0 0 12 18"><path d="M0 0 L0 15 L4 11.5 L6.8 17.5 L9.2 16.4 L6.5 10.6 L11.5 10.6 Z"/></svg>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AGENTS ============ -->
+<section class="agents" id="agents" aria-labelledby="a-h">
+  <div class="wrap ag-in">
+    <div>
+      <p class="kicker"><span>03</span> Agents</p>
+      <h2 id="a-h">Your agent can <em>drive it, too.</em></h2>
+      <p class="sec-lede"><code>kolomctl</code> and a local MCP server let your coding agent read the layout and build Terminal grids for you.</p>
+    </div>
+    <div>
+      <div class="copy-card">
+        <code id="mcp-cmd"><span class="p">$</span> claude mcp add --scope user kolom -- ~/.local/bin/kolomctl mcp</code>
+        <button class="copy" type="button" data-copy="mcp-cmd"><span>Copy</span></button>
+      </div>
+      <ul class="ag-pts">
+        <li><b>Local.</b> The MCP server runs on your Mac, beside Kolom.</li>
+        <li><b>Your call.</b> Moving windows stays off until you opt in.</li>
+        <li><b>Same grids.</b> “3×2 terminals” works from your agent, too.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SAFETY ============ -->
+<section class="safety stage" id="safety" aria-labelledby="s-h">
+  <div class="wrap">
+    <p class="kicker"><span>04</span> Safe by design</p>
+    <h2 id="s-h">Pause or quit, and<br><em>everything comes back.</em></h2>
+    <div class="safe-row">
+      <div><svg viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14a9 9 0 1 0 2.7-6.4M5 4.5v4.6h4.6"/></svg><h3>Every window, restored.</h3><p>Pause or quit and each window goes back where you had it.</p></div>
+      <div><svg viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14 3.5 5 7v6.5c0 5.4 3.8 9.4 9 11 5.2-1.6 9-5.6 9-11V7Z"/><path d="m10 14 3 3 5.5-6" stroke-linecap="round"/></svg><h3>A watchdog, just in case.</h3><p>If Kolom ever crashes, a watchdog restores your windows and your wallpaper.</p></div>
+      <div><svg viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="12" width="16" height="11" rx="2.5"/><path d="M9.5 12V9a4.5 4.5 0 0 1 9 0v3"/></svg><h3>Nothing leaves your Mac.</h3><p>Public Accessibility APIs only. No screen capture. No telemetry. Ask Kolom runs fully on device.</p></div>
+    </div>
+    <div class="ctas"><button class="btn btn-ghost btn-sm" type="button" data-chapter="5">Watch it put everything back <span aria-hidden="true">↑</span></button></div>
+  </div>
+</section>
+
+<!-- ============ INSTALL ============ -->
+<section class="install stage" id="install" aria-labelledby="i-h">
+  <div class="wrap install-in">
+    <p class="kicker"><span>05</span> Install</p>
+    <h2 id="i-h">Hand this to <em>your agent.</em></h2>
+    <p class="sec-lede">Paste one line into the coding agent on your Mac. It reads the guide, builds Kolom from source, and walks you through the permission.</p>
+    <div class="copy-card big">
+      <code id="agent-prompt">Read https://github.com/ckluis/kolom/blob/main/INSTALL-WITH-AN-AGENT.md and follow it.</code>
+      <button class="copy" type="button" data-copy="agent-prompt"><span>Copy</span></button>
+    </div>
+    <p class="or">Or do it yourself</p>
+    <div class="copy-card">
+      <code id="manual"><span class="p">$</span> git clone https://github.com/ckluis/kolom &amp;&amp; cd kolom &amp;&amp; ./scripts/install.sh</code>
+      <button class="copy" type="button" data-copy="manual"><span>Copy</span></button>
+    </div>
+    <ul class="honest">
+      <li><b>Alpha.</b> Usable day to day, still being hardened.</li>
+      <li><b>macOS 13 or later.</b> Tested on Apple silicon.</li>
+      <li><b>Ask Kolom</b> needs macOS 26 with Apple Intelligence.</li>
+      <li><b>Builds from source.</b> No notarized download yet.</li>
+      <li><b>Needs Accessibility permission</b> to move your windows.</li>
+      <li><b>A guide is built in.</b> Click the ? in the rail.</li>
+    </ul>
+    <div class="ctas center">
+      <a class="btn btn-lime" href="https://github.com/ckluis/kolom"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 .8l2.2 4.6 5 .7-3.6 3.5.9 5L8 12.2l-4.5 2.4.9-5L.8 6.1l5-.7Z"/></svg> Star Kolom on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CREDITS ============ -->
+<section class="credits" aria-labelledby="c-h">
+  <div class="wrap">
+    <p class="kicker"><span>06</span> Inspired by</p>
+    <h2 id="c-h" class="credits-h">Standing on the shoulders of scrolling tilers.</h2>
+    <p class="credits-p">Kolom exists because these projects proved the idea. Defi’s display staircase and pointer mapping are adapted under MIT; everything else is inspiration, not code.</p>
+    <ul class="credit-list">
+      <li><a href="https://github.com/niri-wm/niri">niri</a></li>
+      <li><a href="https://github.com/paperwm/PaperWM">PaperWM</a></li>
+      <li class="strong"><a href="https://github.com/qeude/Defi">Defi</a><small>code adapted · MIT</small></li>
+      <li><a href="https://github.com/karinushka/paneru">Paneru</a></li>
+      <li><a href="https://nikitabobko.github.io/AeroSpace/">AeroSpace</a></li>
+      <li><a href="https://github.com/asmvik/yabai">yabai</a></li>
+      <li><a href="https://omniwm.app/">OmniWM</a></li>
+      <li><a href="https://enisbrik.github.io/strip/">Strip</a></li>
+      <li><a href="https://trelliswm.app/">Trellis</a></li>
+      <li><a href="https://github.com/apphane-dev/nehir">Nehir</a></li>
+      <li><a href="https://shojimac.com/">Shoji</a></li>
+      <li><a href="https://hypr.land/">Hyprland</a></li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <a class="brand" href="#top"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="5.5" y="7" width="6" height="18" rx="2" fill="currentColor"/><rect x="13.5" y="7" width="6" height="8" rx="2" fill="currentColor"/><rect x="13.5" y="17" width="6" height="8" rx="2" fill="currentColor"/><rect x="21.5" y="7" width="6" height="18" rx="2" fill="var(--lime)"/></svg><span>Kolom</span></a>
+    <p><i>kolom</i> — Dutch for <em>column</em>.</p>
+    <p class="foot-r"><a href="https://github.com/ckluis/kolom/blob/main/LICENSE">MIT License</a> · <a href="https://github.com/ckluis/kolom">GitHub</a></p>
+  </div>
+</footer>
+
+<script src="js/apps.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/site.js"></script>
+</body>
+</html>

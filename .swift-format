@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "lineLength": 120,
+  "indentation": { "spaces": 4 },
+  "respectsExistingLineBreaks": true,
+  "lineBreakBeforeEachArgument": false,
+  "rules": { "DoNotUseSemicolons": true, "OneVariableDeclarationPerLine": true, "AlwaysUseLowerCamelCase": false, "NoBlockComments": false, "OrderedImports": false, "UseLetInEveryBoundCaseVariable": false, "NeverForceUnwrap": false, "NeverUseForceTry": false, "AllPublicDeclarationsHaveDocumentation": false, "ValidateDocumentationComments": false, "ReturnVoidInsteadOfEmptyTuple": false, "UseSynthesizedInitializer": false, "OmitExplicitReturns": false, "NoAccessLevelOnExtensionDeclaration": false, "FileScopedDeclarationPrivacy": false, "UseTripleSlashForDocumentationComments": false, "DontRepeatTypeInStaticProperties": false, "AmbiguousTrailingClosureOverload": false, "NoLeadingUnderscores": false, "BeginDocumentationCommentWithOneLineSummary": false, "AvoidRetroactiveConformances": false }
+}
