@@ -876,9 +876,11 @@ final class KolomController: ObservableObject {
             guard let self, self.enabled else { return }
             let connected = self.realDisplays()
             guard let primary = connected.first?.id else { return }
+            // The same open windows refresh keeps: a window briefly missing from a pass
+            // must not lose its home display here.
             self.displayMemory.reconnect(
                 workspaces: &self.workspaces, connected: connected.map(\.id), primary: primary,
-                live: Set(self.windows.keys))
+                live: Set(self.windows.keys).union(self.suspended.keys).union(self.startupHold.waiting))
             self.displays = connected
             self.commandDisplay = nil
             // Side panels stay open unless their display is gone; the staircase
@@ -954,7 +956,15 @@ final class KolomController: ObservableObject {
             expected.removeValue(forKey: w.id)
             changed = true
         }
-        if !force && Date().timeIntervalSince(lastApply) > 0.4 && Date() > scrollingUntil {
+        // While displays reconfigure, macOS moves windows itself (off a display that
+        // went away, back onto one that returned) and the display frames here are
+        // stale. Taking those moves as drags would forget a window's home display
+        // and pull it out of its stack.
+        let real = realDisplays()
+        let displaysSettled =
+            Date() > displayIntentUntil && real.map(\.id) == displays.map(\.id)
+            && real.map(\.screen?.frame) == displays.map(\.screen?.frame)
+        if !force && Date().timeIntervalSince(lastApply) > 0.4 && Date() > scrollingUntil && displaysSettled {
             // Retained windows of busy apps carry stale frames; they are not readings.
             for w in found
             where w.pid != getpid() && !offStrip.contains(w.id) && !bridge.unresponsivePIDs.contains(w.pid)

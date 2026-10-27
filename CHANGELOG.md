@@ -1,3 +1,7 @@
+## Unreleased
+
+- Display changes (KVM switches, DisplayLink monitors coming and going) no longer scatter the layout. While displays reconfigure, macOS moves windows itself; Kolom took those moves as drags, which forgot a window's home display and pulled it out of its stack. Window moves are read as drags only once displays have settled and match what Kolom laid out against. A window briefly missing during a display change also keeps its remembered home.
+
 ## 0.2.0 — 2026-10-26
 
 - Renamed Ribbon → Kolom (bundle id `io.github.ckluis.kolom`; storage `~/Library/Application Support/Kolom`). Settings and layout migrate once from Ribbon, which must be quit first.
