@@ -30,10 +30,20 @@ xcrun --find swift >/dev/null 2>&1 || fail "Swift is missing. Run: xcode-select 
 if (( QUIT )) && /usr/bin/pgrep -x Kolom >/dev/null; then
   # The app, not its recovery helper: the helper restores windows if the app exits
   # without doing so (copies before 0.2.2 do not handle SIGTERM) and then exits too.
-  for pid in $(/usr/bin/pgrep -x Kolom); do
-    [[ "$(/bin/ps -o args= -p "$pid")" == *--recovery-watchdog* ]] || kill -TERM "$pid" 2>/dev/null || true
-  done
   print "Quitting Kolom (your windows are restored)…"
+  for pid in $(/usr/bin/pgrep -x Kolom); do
+    [[ "$(/bin/ps -o args= -p "$pid")" == *--recovery-watchdog* ]] && continue
+    # 0.2.2–0.2.4 hang when SIGTERM asks them to quit (it waited on the queue it
+    # was running on). Those are stopped outright; their recovery helper restores
+    # the windows, as it does after a crash.
+    executable="$(/bin/ps -o comm= -p "$pid" 2>/dev/null || true)"
+    version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+      "${executable%/MacOS/*}/Info.plist" 2>/dev/null || true)"
+    case "$version" in
+      0.2.2|0.2.3|0.2.4) kill -KILL "$pid" 2>/dev/null || true ;;
+      *) kill -TERM "$pid" 2>/dev/null || true ;;
+    esac
+  done
   for i in {1..240}; do /usr/bin/pgrep -x Kolom >/dev/null || break; sleep 0.5; done
   /usr/bin/pgrep -x Kolom >/dev/null &&
     fail "Kolom is still running, perhaps asking about windows it could not restore. Answer it, then run this again."
