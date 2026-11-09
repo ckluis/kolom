@@ -207,6 +207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let performance = NSMenuItem(title: "Performance…", action: #selector(togglePerformance), keyEquivalent: "")
         performance.target = self
         submenu.addItem(performance)
+        let diskMap = NSMenuItem(title: "Disk Map…", action: #selector(openDiskMap), keyEquivalent: "")
+        diskMap.target = self
+        submenu.addItem(diskMap)
         let palette = NSMenuItem(title: "Move Window…", action: #selector(moveWindow), keyEquivalent: "k")
         palette.target = self
         submenu.addItem(palette)
@@ -295,6 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
     @objc func togglePerformance() { model.togglePerformance() }
+    @objc func openDiskMap() {
+        let name = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "Startup disk"
+        DiskMapWindow.open(path: "/", name: name ?? "Startup disk", startupDisk: true)
+    }
     @objc func toggleGuide() { model.toggleGuide() }
     @objc func toggleIsolateDisplays() { model.isolateDisplays.toggle() }
     @objc func recordScrollingTest() { agent?.startTrace() }
@@ -435,6 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item("Recover windows", #selector(restoreSession), enabled: model.permissionGranted && !model.restoring)
         }
         item(model.performanceDisplay == nil ? "Performance…" : "Close performance", #selector(togglePerformance))
+        item("Disk Map…", #selector(openDiskMap))
         item(model.guideDisplay == nil ? "Kolom Guide…" : "Close guide", #selector(toggleGuide))
         let theme = item("Appearance", nil)
         let themes = NSMenu()

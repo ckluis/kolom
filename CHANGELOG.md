@@ -1,3 +1,9 @@
+## 0.2.8 — 2026-11-09
+
+- **Disk Map**, replacing 0.2.7's folder list: a treemap of a disk or folder in its own window, adopting DiskTree's design (MIT, credited). Squarified tiles three levels deep, coloured by kind of data, with space that can be had back hatched in amber; go in and up with an animated zoom; breadcrumbs with sibling menus; keyboard (Enter, Backspace, arrows, Tab, ⌘[ ⌘], ⌘R); a panel with the selection, **Worth a look** (the largest reclaimable folders, such as caches, build output and logs) and the disk. Open it from the Storage panel (a disk, or **Choose a folder…**) or **Disk Map…** in the menus.
+- The scan is parallel (cores − 2 threads): 2.37 million files in 17–39 s on the test Mac, against 50 s before; one disk, symlinks not followed, cloud-only folders never opened. A live overview fills in while it runs. About 110 MB while the window is open, released when it closes.
+- Kolom appears in the Dock and ⌘-Tab while the Disk Map is open.
+
 ## 0.2.7 — 2026-11-09
 
 - **Storage** in Performance: a fifth panel shows the startup disk's free space; click it for every mounted disk (kind, usage bar, used and available), then open one to scan its folders, largest first, and drill in, as DiskTree does. Sizes only, on that disk only, and only while it is open: measured 2.3 million files in about 50 seconds at about a quarter of one core and at most 52 MB, released when you leave. **Files in this folder** lists the largest files; **Not in the folders scanned** accounts for macOS, snapshots, purgeable space and unreadable folders; protected folders are counted and explained, with a Full Disk Access button. Process sampling pauses while storage is shown.
