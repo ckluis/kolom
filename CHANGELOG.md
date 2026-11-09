@@ -1,3 +1,10 @@
+## 0.2.3 — 2026-11-09
+
+- Performance groups every process under the app responsible for it, as Activity Monitor does, and unfolds in three levels. A terminal's shells and what runs in them now sit under the terminal (cmux: one row, not 40 loose `zsh` and `node` rows); Safari's Web Content processes sit under Safari. Unfold an app for its main process and its sessions, each named by shell and folder (`zsh · kolom`, with what it runs), then a session for its process tree with PIDs and working directories. Same-named processes are gathered (**Web Content · 10 processes**; macOS does not say which tab each one is). macOS background services share one **macOS** row. The filter also matches folders and PIDs, and **Fold all** closes everything.
+- GPU is measured: the rail and the dashboard show GPU utilization, and each row shows its share of GPU time, sortable, from the GPU's own per-app accounting in the IOKit registry. The per-process network column, which could never be filled without administrator access, is gone.
+- An app's CPU no longer blanks for a sample whenever one of its processes has just started.
+- Tools installed as one executable per version (Claude Code's `2.1.316`) are named after the tool.
+
 ## 0.2.2 — 2026-11-09
 
 - Kolom tells you when a newer release exists. Once a day (first a minute after launch) it asks GitHub for the latest release; when it is newer, the menu bar menu shows **Kolom x.y.z is available · What's new…** and **Copy update command**. **Check for updates now** checks at once and **Check for updates automatically** turns it off. It is one HTTPS GET with a `Kolom/<version>` user agent and no cookies; nothing about the Mac or its windows is sent, and Kolom never downloads or installs anything itself. `kolom_state` reports it under `update`, so agents can mention it. README and SECURITY.md no longer say Kolom makes no network connections.

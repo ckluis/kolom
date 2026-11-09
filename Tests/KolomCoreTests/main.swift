@@ -1160,3 +1160,105 @@ XCTAssertEqual(
     "cd '/Users/me/Kolom'\\''s code' && git pull --ff-only && ./scripts/install.sh --quit-running")
 XCTAssertEqual(UpdateCheck.command(checkout: nil), "git pull --ff-only && ./scripts/install.sh --quit-running")
 print("PASS: update checks compare release versions, ignore drafts and foreign pages, and quote the checkout")
+
+// Performance grouping: everything an app is responsible for unfolds under it.
+do {
+    func process(
+        _ pid: Int32, _ name: String, parent: Int32 = 1, responsible: Int32? = nil, path: String = "/usr/bin/x",
+        directory: String? = nil, system: Bool = false, cpu: Double? = 0.01, gpu: Double? = 0, memory: Double? = 1000
+    ) -> ProcessSample {
+        ProcessSample(
+            id: "\(pid):1", pid: pid, parent: parent, responsible: responsible ?? pid, name: name, path: path,
+            directory: directory, system: system, cpu: cpu, gpu: gpu, memory: memory)
+    }
+    let home = "/Users/me"
+    let apps = [
+        ProcessOwnerApp(pid: 100, path: "/Applications/cmux.app", id: "com.cmux", name: "cmux"),
+        ProcessOwnerApp(pid: 200, path: "/Applications/Safari.app", id: "com.apple.Safari", name: "Safari"),
+    ]
+    let samples = [
+        process(100, "cmux", path: "/Applications/cmux.app/Contents/MacOS/cmux", gpu: 0.05),
+        // A terminal session: login (root-owned, from /usr/bin) → zsh → claude → node.
+        process(110, "login", parent: 100, responsible: 100, path: "/usr/bin/login", system: true),
+        process(111, "zsh", parent: 110, responsible: 100, path: "/bin/zsh", directory: "/Users/me/projects/kolom"),
+        process(112, "claude", parent: 111, responsible: 100, directory: "/Users/me/projects/kolom", cpu: 0.2),
+        process(113, "node", parent: 112, responsible: 100, cpu: nil),  // just started
+        process(120, "login", parent: 100, responsible: 100, path: "/usr/bin/login", system: true),
+        process(121, "zsh", parent: 120, responsible: 100, path: "/bin/zsh", directory: "/Users/me"),
+        process(122, "vim", parent: 121, responsible: 100),
+        process(200, "Safari", path: "/Applications/Safari.app/Contents/MacOS/Safari"),
+        // Web content is started by launchd, not Safari, and runs from WebKit.framework.
+        process(201, "com.apple.WebKit.WebContent", responsible: 200, path: "/System/Library/Frameworks/WebKit"),
+        process(202, "com.apple.WebKit.WebContent", responsible: 200, path: "/System/Library/Frameworks/WebKit"),
+        process(203, "com.apple.WebKit.Networking", responsible: 200, path: "/System/Library/Frameworks/WebKit"),
+        process(300, "WindowServer", path: "/System/Library/WindowServer", system: true, gpu: 0.02),
+        process(301, "mds", path: "/usr/libexec/mds", system: true),
+        process(400, "postgres", path: "/opt/homebrew/bin/postgres"),
+        process(401, "postgres", parent: 400, responsible: 400, path: "/opt/homebrew/bin/postgres"),
+        process(500, "lonely", path: "/usr/local/bin/lonely"),
+    ]
+    let tree = ProcessGrouping.tree(samples, apps: apps, home: home)
+    let top = Dictionary(uniqueKeysWithValues: tree.map { ($0.title, $0) })
+    XCTAssertEqual(Set(top.keys), ["cmux", "Safari", "macOS", "postgres", "lonely"])
+
+    let cmux = top["cmux"]!
+    XCTAssertEqual(cmux.count, 8)  // login wrappers belong to the terminal, not to macOS
+    XCTAssertEqual(cmux.kind, .app)
+    XCTAssertEqual(cmux.appID, "com.cmux")
+    XCTAssertEqual(cmux.children.map(\.title), ["cmux", "zsh · kolom", "zsh"])
+    XCTAssertTrue(cmux.children[0].detail.hasPrefix("Main process"))
+    let session = cmux.children[1]
+    XCTAssertEqual(session.kind, .session)
+    XCTAssertEqual(session.count, 4)
+    XCTAssertEqual(session.detail, "~/projects/kolom · 4 processes · claude, node")
+    XCTAssertEqual(session.children.map(\.title), ["login", "zsh", "claude", "node"])
+    XCTAssertEqual(session.children.map(\.depth), [0, 1, 2, 3])
+    // A just-started process has no CPU reading yet; it must not blank the totals.
+    XCTAssertEqual(session.cpu!, 0.01 + 0.01 + 0.2, accuracy: 1e-9)
+    XCTAssertEqual(cmux.gpu!, 0.05, accuracy: 1e-9)
+    XCTAssertTrue(cmux.matches("KOLOM") && cmux.matches("113") && !cmux.matches("safari"))
+
+    let safari = top["Safari"]!
+    XCTAssertEqual(safari.count, 4)
+    XCTAssertEqual(safari.children.map(\.title), ["Safari", "Web Content", "Web Networking"])
+    XCTAssertEqual(safari.children[1].kind, .bucket)
+    XCTAssertEqual(safari.children[1].count, 2)
+    XCTAssertTrue(safari.children[1].detail.contains("does not say which tab"))
+    XCTAssertTrue(safari.matches("webcontent"))
+
+    XCTAssertEqual(top["macOS"]!.id, ProcessGrouping.systemID)
+    XCTAssertEqual(top["macOS"]!.count, 2)
+    XCTAssertEqual(top["postgres"]!.count, 2)  // workers join the process responsible for them
+    XCTAssertEqual(top["lonely"]!.kind, .process)
+    XCTAssertTrue(top["lonely"]!.children.isEmpty)
+    XCTAssertEqual(tree.map(\.count).reduce(0, +), samples.count)
+
+    // Without the responsibility record, bundles and parents still find the owner.
+    let fallback = ProcessGrouping.tree(
+        samples.map { var s = $0; s.responsible = nil; return s }, apps: apps, home: home)
+    XCTAssertEqual(fallback.first { $0.title == "cmux" }!.count, 8)
+
+    // Every row has its own id, or SwiftUI draws the outline wrong.
+    func ids(_ nodes: [ProcessNode]) -> [String] { nodes.flatMap { [$0.id] + ids($0.children) } }
+    XCTAssertEqual(Set(ids(tree)).count, ids(tree).count)
+    // Ids stay stable between samples so unfolded rows stay unfolded.
+    XCTAssertEqual(
+        ProcessGrouping.tree(samples.reversed(), apps: apps, home: home).flatMap { [$0.id] + $0.children.map(\.id) }
+            .sorted(), tree.flatMap { [$0.id] + $0.children.map(\.id) }.sorted())
+
+    func named(_ name: String, _ path: String) -> String { ProcessGrouping.displayName(process(9, name, path: path)) }
+    XCTAssertEqual(named("2.1.316", "/Users/me/.local/share/claude/versions/2.1.316"), "claude 2.1.316")
+    XCTAssertEqual(named("1.2.3", "/opt/tool/1.2.3"), "tool 1.2.3")
+    XCTAssertEqual(named("node", "/opt/homebrew/bin/node"), "node")
+    XCTAssertEqual(named("com.apple.WebKit.WebContent", ""), "Web Content")
+    XCTAssertTrue(ProcessSample.isSystem(path: "/usr/sbin/cfprefsd", uid: 501))
+    XCTAssertTrue(ProcessSample.isSystem(path: "/opt/x", uid: 0))
+    XCTAssertFalse(ProcessSample.isSystem(path: "/bin/zsh", uid: 501))
+    XCTAssertEqual(ProcessGrouping.abbreviate("/Users/me/a", home: home), "~/a")
+    XCTAssertEqual(ProcessGrouping.abbreviate("/Users/meow", home: home), "/Users/meow")
+    XCTAssertTrue(ProcessGrouping.sum([nil, nil]) == nil)
+    XCTAssertTrue(processGPUShare(previous: nil, current: 5, elapsed: 2) == nil)
+    XCTAssertTrue(processGPUShare(previous: 9, current: 5, elapsed: 2) == nil)
+    XCTAssertEqual(processGPUShare(previous: 0, current: 1_000_000_000, elapsed: 2)!, 0.5)
+    print("PASS: performance groups processes by responsible app, session and kind, with GPU shares")
+}
