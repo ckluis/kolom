@@ -13,12 +13,15 @@ struct StopTarget {
     let kind: Kind
     let name: String
     let count: Int
+    /// Terminal sessions it ends (an idle group, a session), for the wording.
+    let sessions: Int?
 
     init?(node: ProcessNode) {
         guard node.stoppable, !node.pids.isEmpty, node.kind != .system else { return nil }
         guard Set(node.pids).isDisjoint(with: Self.protectedPIDs()) else { return nil }
         name = node.title
         count = node.pids.count
+        sessions = node.kind == .idle ? node.children.count : node.kind == .session ? 1 : nil
         if node.kind == .app, node.appID != nil, let pid = node.pid,
             let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy != .prohibited
         {
@@ -49,7 +52,11 @@ struct StopTarget {
     func title(force: Bool) -> String {
         switch kind {
         case .app: return force ? "Force Quit \(name)" : "Quit \(name)"
-        case .processes: return force ? "Force Stop \(processesWord)" : "Stop \(processesWord)"
+        case .processes:
+            if let sessions, sessions > 1 {
+                return force ? "Force Stop \(sessions) Idle Sessions" : "Stop \(sessions) Idle Sessions"
+            }
+            return force ? "Force Stop \(processesWord)" : "Stop \(processesWord)"
         }
     }
     func button(force: Bool) -> String {
@@ -77,8 +84,9 @@ struct StopTarget {
             let how =
                 force
                 ? "They end at once (SIGKILL). Unsaved work in them is lost."
-                : "They are asked to stop (SIGTERM), as closing their terminal would. Programs may save first; an interactive shell may ignore it, and Force Stop ends it."
-            return "\(names)\(more).\n\n\(how)"
+                : "They are asked to stop as closing their terminal would: shells get SIGHUP, other programs SIGTERM. Programs may save first; Force Stop ends anything that stays."
+            let tabs = sessions != nil ? "\n\nTheir terminal tabs stay open but show the session as ended; close them in the terminal app." : ""
+            return "\(names)\(more).\n\n\(how)\(tabs)"
         }
     }
 
@@ -92,7 +100,8 @@ struct StopTarget {
         case .processes(let list):
             // Children first, so a shell does not respawn or report what it started.
             pids = list.reversed()
-            for pid in pids { kill(pid, force ? SIGKILL : SIGTERM) }
+            // An interactive shell ignores SIGTERM; a terminal closing sends it SIGHUP.
+            for pid in pids { kill(pid, force ? SIGKILL : Self.isShell(pid) ? SIGHUP : SIGTERM) }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + (force ? 0.5 : 2)) {
             let running = pids.filter { kill($0, 0) == 0 || errno == EPERM }
@@ -106,6 +115,10 @@ struct StopTarget {
                     "\(name): \(running.count) of \(pids.count) still running\(force ? "" : " · Force Stop ends them")")
             }
         }
+    }
+
+    static func isShell(_ pid: Int32) -> Bool {
+        ["zsh", "bash", "fish", "sh", "tcsh", "ksh", "dash", "nu", "login"].contains(name(of: pid))
     }
 
     static func name(of pid: Int32) -> String {

@@ -207,23 +207,41 @@ private struct DiskMapProgress: View {
 
 // MARK: Legend
 
+/// Full labels when there is room, short ones when narrower, swatches with
+/// tooltips when narrow (the panel on a 1080p display); never cut off mid-word.
 private struct DiskMapLegend: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
-        HStack(spacing: 12) {
+        ViewThatFits(in: .horizontal) {
+            row { $0.label }
+            row { Self.short($0) }
+            row { _ in nil }
+        }.font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
+    }
+
+    private func row(_ title: @escaping (DiskKind) -> String?) -> some View {
+        HStack(spacing: 10) {
             ForEach(DiskKind.legend, id: \.self) { kind in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2).fill(Color(nsColor: DiskMapPalette.base(kind, dark: scheme == .dark)))
                         .frame(width: 10, height: 10)
-                    Text(kind.label)
-                }
+                    if let text = title(kind) { Text(text).fixedSize() }
+                }.help(kind.label)
             }
             HStack(spacing: 4) {
                 HatchSwatch().frame(width: 10, height: 10)
-                Text("Can be had back")
-            }
-            Spacer(minLength: 0)
-        }.font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
+                Text(title(.cache) == nil ? "Reclaimable" : "Can be had back").fixedSize()
+            }.help("Space that can be had back")
+        }
+    }
+
+    static func short(_ kind: DiskKind) -> String {
+        switch kind {
+        case .agentScratch: return "Agents"
+        case .toolchain: return "Tools"
+        case .documents: return "Docs"
+        default: return kind.label
+        }
     }
 }
 

@@ -279,8 +279,11 @@ struct PerformanceDashboard: View {
     private var insight: some View {
         HStack(spacing: 10) {
             Image(systemName: "waveform.path").foregroundColor(cpuTint)
-            if let top = ordered(monitor.nodes).first, value(top.cpu, top.gpu, top.memory, top.network) >= 0 {
-                Text(top.title).fontWeight(.medium).lineLimit(1)
+            if let first = ordered(monitor.nodes).first, value(first.cpu, first.gpu, first.memory, first.network) >= 0 {
+                // macOS as a whole is rarely the answer; name its busiest part.
+                let top = first.kind == .system ? (ordered(first.children).first ?? first) : first
+                Text(first.kind == .system && top.id != first.id ? "\(top.title) (macOS)" : top.title)
+                    .fontWeight(.medium).lineLimit(1)
                 Text(top.count > 1 ? "\(insightPhrase) across \(top.count) processes" : insightPhrase)
                     .foregroundColor(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
@@ -411,6 +414,7 @@ struct PerformanceDashboard: View {
                 case .notable: return "info.circle"
                 case .extensions: return "square.grid.2x2"
                 case .leftover: return "exclamationmark.circle"
+                case .idle: return "moon.zzz"
                 case .session: return "terminal"
                 case .bucket: return "square.stack.3d.up"
                 case .app: return "gearshape"
@@ -459,6 +463,8 @@ struct PerformanceDashboard: View {
             .background(
                 node.kind == .leftover
                     ? Color.orange.opacity(0.07)
+                    : node.kind == .idle
+                        ? Color.indigo.opacity(0.06)
                     : level == 0
                         ? cpuTint.opacity(min(0.07, (node.cpu ?? 0) * 0.15)) : Color.primary.opacity(0.02 * Double(level)))
             .overlay(alignment: .bottom) { Divider().opacity(level == 0 ? 0.45 : 0.25) }

@@ -81,6 +81,8 @@ final class ProcessResourceSampler {
         // Other users' processes (WindowServer, root daemons) are closed to libproc;
         // Apple's ps may read them.
         let listed = PSSnapshot.read()
+        var terminals: [UInt32: Double?] = [:]
+        let wall = Date().timeIntervalSince1970
         for pid in pids.prefix(min(Int(found), pids.count)) where pid > 0 {
             var usage = rusage_info_v2()
             let success =
@@ -128,6 +130,16 @@ final class ProcessResourceSampler {
             let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
             let hasInfo = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize
             let system = ProcessSample.isSystem(path: path, uid: hasInfo ? info.pbi_uid : 0)
+            // A terminal's device is touched whenever anything is typed or printed in it.
+            var terminalIdle: Double?
+            if hasInfo, !system, info.e_tdev != UInt32.max {
+                if let known = terminals[info.e_tdev] {
+                    terminalIdle = known
+                } else {
+                    terminalIdle = Self.terminalIdle(info.e_tdev, now: wall)
+                    terminals[info.e_tdev] = terminalIdle
+                }
+            }
             let responsible = responsibleFor.map { $0(pid) }.flatMap { $0 > 0 ? $0 : nil }
             let total = usage.ri_user_time &+ usage.ri_system_time
             let cpu = processCPUShare(
@@ -153,7 +165,10 @@ final class ProcessResourceSampler {
                     id: id, pid: pid, parent: hasInfo ? Int32(info.pbi_ppid) : 0, responsible: responsible,
                     name: name, path: path, directory: system ? nil : workingDirectory(pid), system: system,
                     user: hasInfo && info.pbi_uid == uid, label: labels[pid], cpu: cpu, gpu: gpu, memory: memory,
-                    network: traffic))
+                    network: traffic, terminalIdle: terminalIdle))
+            if let directory = samples.last?.directory, !FileManager.default.fileExists(atPath: directory) {
+                samples[samples.count - 1].directoryMissing = true
+            }
         }
         var nodes = ProcessGrouping.tree(samples, apps: apps, home: home)
         var nextNodes: [String: Histories] = [:]
@@ -192,6 +207,15 @@ final class ProcessResourceSampler {
 
     private func leaves(_ node: ProcessNode) -> [Int32] {
         node.children.isEmpty ? [node.pid].compactMap { $0 } : node.children.flatMap(leaves)
+    }
+
+    /// Seconds since a terminal device last saw input or output.
+    static func terminalIdle(_ device: UInt32, now: Double) -> Double? {
+        guard let name = devname(dev_t(bitPattern: device), S_IFCHR) else { return nil }
+        var info = stat()
+        guard stat("/dev/" + String(cString: name), &info) == 0 else { return nil }
+        let touched = Double(max(info.st_mtimespec.tv_sec, info.st_atimespec.tv_sec))
+        return max(0, now - touched)
     }
 
     private func workingDirectory(_ pid: Int32) -> String? {
