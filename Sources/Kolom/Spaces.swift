@@ -1,4 +1,5 @@
 import AppKit
+import KolomCore
 
 /// Which Space each display shows. macOS has no public API for this; the
 /// WindowServer's own (SkyLight, the one yabai and Amethyst read) is looked up at
@@ -7,8 +8,8 @@ enum Spaces {
     struct Display {
         /// The Space it shows now.
         let current: UInt64
-        /// Every Space it has, to tell "elsewhere" from "gone".
-        let all: Set<UInt64>
+        /// Every Space it has, in Mission Control order.
+        let ordered: [UInt64]
     }
 
     private typealias Connection = @convention(c) () -> Int32
@@ -36,10 +37,10 @@ enum Spaces {
             guard let id = entry["Display Identifier"] as? String,
                 let current = ((entry["Current Space"] as? [String: Any])?["ManagedSpaceID"] as? NSNumber)?.uint64Value
             else { continue }
-            let all = (entry["Spaces"] as? [[String: Any]] ?? []).compactMap {
+            let ordered = (entry["Spaces"] as? [[String: Any]] ?? []).compactMap {
                 ($0["ManagedSpaceID"] as? NSNumber)?.uint64Value
             }
-            result[id] = Display(current: current, all: Set(all).union([current]))
+            result[id] = Display(current: current, ordered: ordered)
         }
         // "Main" stands for every display when Spaces are shared.
         if let shared = result["Main"] {
@@ -48,6 +49,11 @@ enum Spaces {
             }
         }
         return result.isEmpty ? nil : result
+    }
+
+    /// In the form the strips use.
+    static func shown() -> [String: SpaceStrips.Shown]? {
+        current()?.mapValues { SpaceStrips.Shown(current: $0.current, ordered: $0.ordered) }
     }
 
     static func uuid(_ screen: NSScreen) -> String? {

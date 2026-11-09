@@ -70,12 +70,15 @@ extension KolomController {
         pauseReason = nil
         interacting = false
         enabled = true
-        // Manage the Space each display shows now; another Space waits instead of pausing.
-        if let shown = Spaces.current() {
-            spaces.start(shown.mapValues { .init(current: $0.current, all: $0.all) }, displays: displays.map(\.id))
-            record("space", ["started": spaces.managed.mapValues { Int($0) }])
+        // Each display × Space has its own strip; strips kept from before return
+        // for Spaces that still exist.
+        strips = (try? Data(contentsOf: stripsURL)).flatMap { try? JSONDecoder().decode(SpaceStrips.self, from: $0) }
+            ?? SpaceStrips()
+        if let shown = Spaces.shown() {
+            strips.start(shown)
+            record("space", ["started": strips.shown.mapValues { Int($0) }, "waiting": strips.elsewhere.count])
         } else {
-            spaces.reset()
+            strips.reset()
         }
         // Enabled while asleep or locked (or with a missed wake): stay suspended.
         if !inactiveSession.isEmpty { suspend(.sessionInactive) }
@@ -112,7 +115,6 @@ extension KolomController {
         interacting = false
         flushLayout()
         enabled = false
-        spaces.reset()
         pendingRefresh?.cancel()
         bridge.stopObserving()
         commandDisplay = nil

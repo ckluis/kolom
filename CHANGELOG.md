@@ -1,3 +1,7 @@
+## 0.2.16 — 2026-11-09
+
+- **Every Space has its own strip.** Each display × Space keeps its own columns, widths and order, as if it were another display. Switching a Space on one display swaps only that display's strip; the others carry on (0.2.14 suspended Kolom on every display when any one switched Space, which took it off the bottom display when the top one switched). Windows on a Space not shown wait untouched and are where you left them when you return; a window moved with Mission Control joins the strip of the Space it is in; a DisplayLink reconnect that renumbers a display's Spaces keeps their strips, matched by position. Strips are saved in `space-strips.json`. Without the WindowServer's Space list, a Space change pauses as before.
+
 ## 0.2.15 — 2026-11-09
 
 - **One correction on a DisplayLink reconnect, not two.** The display trace from 0.2.14 showed each reconnect moving windows twice: macOS moved 4–5 windows as the displays appeared and Kolom put them back after 0.9 s; then, 4 s after the reconnect, Kolom applied its display staircase, macOS moved 4 windows again, and Kolom put them back again. The staircase is now applied as soon as the displays settle (with the display change Kolom already waits 0.35 s for), before any window is placed, and windows are placed once, after it.

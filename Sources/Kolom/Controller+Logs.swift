@@ -60,6 +60,7 @@ extension KolomController {
         if let history = try? JSONEncoder().encode(displayMemory) {
             try? history.write(to: displayMemoryURL, options: .atomic)
         }
+        if let data = try? JSONEncoder().encode(strips) { try? data.write(to: stripsURL, options: .atomic) }
     }
     func recordResize(_ id: String, axis: String, phase: String, start: Double, delta: Double) {
         resizeDiagnostics.append([
@@ -134,7 +135,8 @@ extension KolomController {
         let state: [String: Any] = [
             "pid": getpid(), "permissionGranted": permissionGranted, "restoring": restoring,
             "recoveryAvailable": recoveryAvailable, "timestamp": Date().timeIntervalSince1970,
-            "version": BuildInfo.version, "build": BuildInfo.label, "update": updates.liveState, "enabled": enabled,
+            "version": BuildInfo.version, "build": BuildInfo.label, "update": updates.liveState,
+            "spaces": ["shown": strips.shown.mapValues { Int($0) }, "waitingWindows": strips.elsewhere.count], "enabled": enabled,
             "suspended": suspension?.rawValue ?? NSNull(),
 
             "agentBusy": agentBusy, "desktopColumnRatio": 1.1,

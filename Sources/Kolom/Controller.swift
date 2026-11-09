@@ -235,8 +235,9 @@ final class KolomController: ObservableObject {
     /// transfers and display changes can post one). Refresh waits until it has
     /// been re-checked.
     var spaceChangeDeferred = false
-    /// The Space each display is managed on (from SkyLight, when macOS provides it).
-    var spaces = SpaceTracker()
+    /// The strips of Spaces not shown (each display × Space has its own strip).
+    var strips = SpaceStrips()
+    var stripsURL: URL { storage.appendingPathComponent("space-strips.json") }
     /// Display and Space events with millisecond times, for diagnosing flicker.
     var trace: [[String: Any]] = []
     var traceWrite: DispatchWorkItem?
@@ -299,6 +300,9 @@ final class KolomController: ObservableObject {
             return
         }
         if NSEvent.pressedMouseButtons != 0 || interacting || agentBusy || spaceChangeDeferred { return }
+        // Switch strips before listing windows: a Space notification can arrive after
+        // a refresh has already seen the new Space's windows.
+        syncSpaces()
         let retained = windows
         let wasUnresponsive = bridge.unresponsivePIDs
         let discovered = bridge.discover(retaining: retained, adoptMinimized: true).filter {
@@ -318,6 +322,9 @@ final class KolomController: ObservableObject {
                 && (bridge.unresponsivePIDs.contains(window.pid) || !bridge.isDestroyed(window.element))
         }
         let discoveredIDs = Set(discovered.map(\.id))
+        // Listed now means on a Space shown: such a window leaves any waiting strip.
+        strips.claim(discoveredIDs)
+        let waiting = strips.elsewhere
         // Windows missing from this pass keep their column for a grace period,
         // or while in native full screen; closed windows are dropped.
         let previouslyAbsent = absentWindows
@@ -328,8 +335,10 @@ final class KolomController: ObservableObject {
             isFullScreen: { [bridge] id in retained[id].map { bridge.isFullScreen($0.element) } ?? false })
         let fresh = reconcileRetainedWindows(
             discovered: uniqueByID(discovered, id: \.id), previous: retained,
-            hidden: offStrip.union(away).union(
+            hidden: offStrip.union(away).union(waiting).union(
                 retained.values.filter { bridge.unresponsivePIDs.contains($0.pid) }.map(\.id)), isAlive: isOpen)
+        // Waiting windows that closed leave their strips.
+        strips.drop(waiting.subtracting(fresh.keys))
         absentWindows = Set(fresh.keys).subtracting(discoveredIDs)
         for (id, window) in retained where fresh[id] == nil && NSRunningApplication(processIdentifier: window.pid) != nil {
             let reason =
@@ -478,7 +487,8 @@ final class KolomController: ObservableObject {
         for d in displays {
             var ids = workspaces[d.id]?.windowIDs.filter { allIDs.contains($0) } ?? []
             let assigned = Set(workspaces.values.flatMap(\.windowIDs))
-            for w in found where !assigned.contains(w.id) {
+            // Windows waiting on a Space not shown keep their own strip.
+            for w in found where !assigned.contains(w.id) && !waiting.contains(w.id) {
                 let target = launchTargets[w.pid].flatMap { $0.expires > Date() ? $0.display : nil }
                 // A window coming back belongs on the display it left, if that is still here.
                 let home = departed[w.id].flatMap { entry in displays.contains { $0.id == entry.display } ? entry.display : nil }

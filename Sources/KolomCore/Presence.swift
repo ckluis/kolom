@@ -7,8 +7,6 @@ import Foundation
 public enum SuspensionReason: String, Codable {
     /// Sleep, screen lock, display sleep or fast user switching.
     case sessionInactive
-    /// The user is on a Space Kolom does not manage; it resumes on their return.
-    case otherSpace
 }
 
 /// Decides which managed windows missing from a discovery pass keep their place.
