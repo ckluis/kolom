@@ -52,7 +52,14 @@ private func resourceBytes(_ value: Double?) -> String {
     return String(format: "%.0f KB", value / 1000)
 }
 
-private enum ResourceSort: String { case cpu = "CPU", gpu = "GPU", memory = "MEMORY" }
+private func resourceRate(_ value: Double?) -> String {
+    guard let value else { return "—" }
+    if value < 1 { return "0 B/s" }
+    if value < 1000 { return String(format: "%.0f B/s", value) }
+    if value < 1_000_000 { return String(format: "%.0f KB/s", value / 1000) }
+    return String(format: "%.1f MB/s", value / 1_000_000)
+}
+private enum ResourceSort: String { case cpu = "CPU", gpu = "GPU", memory = "MEMORY", network = "NETWORK" }
 
 /// One visible line of the outline: a node at its unfolded depth.
 private struct OutlineRow: Identifiable {
@@ -68,19 +75,21 @@ struct PerformanceDashboard: View {
     @DashboardState private var sort = ResourceSort.cpu
     @DashboardState private var query = ""
     @DashboardState private var expanded: Set<String> = []
+    @DashboardState private var notice: String?
     let close: () -> Void
 
-    private func value(_ cpu: Double?, _ gpu: Double?, _ memory: Double?) -> Double {
+    private func value(_ cpu: Double?, _ gpu: Double?, _ memory: Double?, _ network: Double?) -> Double {
         switch sort {
         case .cpu: return cpu ?? -1
         case .gpu: return gpu ?? -1
         case .memory: return memory ?? -1
+        case .network: return network ?? -1
         }
     }
     private func ordered(_ nodes: [ProcessNode]) -> [ProcessNode] {
         nodes.sorted {
-            let a = value($0.cpu, $0.gpu, $0.memory)
-            let b = value($1.cpu, $1.gpu, $1.memory)
+            let a = value($0.cpu, $0.gpu, $0.memory, $0.network)
+            let b = value($1.cpu, $1.gpu, $1.memory, $1.network)
             if a != b { return a > b }
             if ($0.memory ?? 0) != ($1.memory ?? 0) { return ($0.memory ?? 0) > ($1.memory ?? 0) }
             return $0.id < $1.id
@@ -106,8 +115,8 @@ struct PerformanceDashboard: View {
                 || $0.groupName.localizedCaseInsensitiveContains(query)
                 || $0.detail.localizedCaseInsensitiveContains(query)
         }.sorted {
-            let a = value($0.cpu, $0.gpu, $0.memory)
-            let b = value($1.cpu, $1.gpu, $1.memory)
+            let a = value($0.cpu, $0.gpu, $0.memory, $0.network)
+            let b = value($1.cpu, $1.gpu, $1.memory, $1.network)
             if a != b { return a > b }
             return ($0.memory ?? 0) > ($1.memory ?? 0)
         }
@@ -125,7 +134,7 @@ struct PerformanceDashboard: View {
             }
             HStack(spacing: 6) {
                 Circle().fill(cpuTint).frame(width: 5, height: 5)
-                Text("LOCAL · READ ONLY").tracking(1)
+                Text("LOCAL · RIGHT-CLICK A ROW TO QUIT OR STOP IT").tracking(1)
                 Spacer()
                 Text("2s samples · up to 2m history")
             }.font(.system(size: 9)).foregroundColor(.secondary).padding(.horizontal, 20).padding(.vertical, 12)
@@ -185,6 +194,7 @@ struct PerformanceDashboard: View {
         case .cpu: return "uses the most CPU"
         case .gpu: return "uses the most GPU time"
         case .memory: return "has the largest memory footprint"
+        case .network: return "moves the most network traffic"
         }
     }
     private func formatted(_ node: ProcessNode) -> String {
@@ -192,12 +202,13 @@ struct PerformanceDashboard: View {
         case .cpu: return resourcePercent(node.cpu)
         case .gpu: return resourcePercent(node.gpu)
         case .memory: return resourceBytes(node.memory)
+        case .network: return resourceRate(node.network)
         }
     }
     private var insight: some View {
         HStack(spacing: 10) {
             Image(systemName: "waveform.path").foregroundColor(cpuTint)
-            if let top = ordered(monitor.nodes).first, value(top.cpu, top.gpu, top.memory) >= 0 {
+            if let top = ordered(monitor.nodes).first, value(top.cpu, top.gpu, top.memory, top.network) >= 0 {
                 Text(top.title).fontWeight(.medium).lineLimit(1)
                 Text(top.count > 1 ? "\(insightPhrase) across \(top.count) processes" : insightPhrase)
                     .foregroundColor(.secondary).lineLimit(1)
@@ -242,11 +253,28 @@ struct PerformanceDashboard: View {
                 .bottom, 12)
             HStack(spacing: 12) {
                 Text(groupApps ? "APP / PROCESS" : "PROCESS").frame(maxWidth: .infinity, alignment: .leading)
-                sortButton(.cpu).frame(width: 84, alignment: .trailing)
-                sortButton(.gpu).frame(width: 84, alignment: .trailing)
+                sortButton(.cpu).frame(width: 76, alignment: .trailing)
+                    .help(
+                        "Share of the whole Mac: 100% is all \(ProcessInfo.processInfo.activeProcessorCount) cores busy. Activity Monitor shows % of one core, \(ProcessInfo.processInfo.activeProcessorCount)× this number.")
+                sortButton(.gpu).frame(width: 72, alignment: .trailing)
                     .help("Share of GPU time, from the GPU's own per-app accounting")
-                sortButton(.memory).frame(width: 100, alignment: .trailing)
+                sortButton(.memory).frame(width: 92, alignment: .trailing)
+                sortButton(.network).frame(width: 84, alignment: .trailing)
+                    .help("Bytes sent and received per second, from Apple’s nettop while this dashboard is open")
             }.font(.system(size: 9, weight: .medium)).foregroundColor(.secondary).padding(.bottom, 9)
+            if let notice {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle").foregroundColor(.secondary)
+                    Text(notice).lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button {
+                        self.notice = nil
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 9))
+                    }.buttonStyle(.plain).foregroundColor(.secondary)
+                }.font(.system(size: 10)).padding(8).background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.05)))
+                    .padding(.bottom, 8)
+            }
             Divider()
             LazyVStack(spacing: 0) {
                 if groupApps {
@@ -273,7 +301,7 @@ struct PerformanceDashboard: View {
                 if sort == key { Image(systemName: "arrow.down").font(.system(size: 8)) }
             }
         }.buttonStyle(.plain).foregroundColor(sort == key ? .primary : .secondary).help(
-            "Sort by \(key.rawValue == "GPU" ? "GPU" : key.rawValue.lowercased()), highest first")
+            "Sort by \(key == .gpu || key == .cpu ? key.rawValue : key.rawValue.lowercased()), highest first")
     }
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
@@ -285,6 +313,9 @@ struct PerformanceDashboard: View {
             let symbol: String = {
                 switch node.kind {
                 case .system: return "apple.logo"
+                case .notable: return "info.circle"
+                case .extensions: return "square.grid.2x2"
+                case .leftover: return "exclamationmark.circle"
                 case .session: return "terminal"
                 case .bucket: return "square.stack.3d.up"
                 case .app: return "gearshape"
@@ -326,13 +357,56 @@ struct PerformanceDashboard: View {
                         ? "\(node.title), \(node.detail)"
                         : "\(node.title), \(node.count) processes, \(open ? "collapse" : "expand")")
             metrics(
-                cpu: node.cpu, gpu: node.gpu, memory: node.memory, cpuHistory: node.cpuHistory.samples,
-                gpuHistory: node.gpuHistory.samples, memoryHistory: node.memoryHistory.samples)
+                cpu: node.cpu, gpu: node.gpu, memory: node.memory, network: node.network,
+                cpuHistory: node.cpuHistory.samples, gpuHistory: node.gpuHistory.samples,
+                memoryHistory: node.memoryHistory.samples, networkHistory: node.networkHistory.samples)
         }.padding(.vertical, level == 0 ? 11 : 8)
             .background(
-                level == 0
-                    ? cpuTint.opacity(min(0.07, (node.cpu ?? 0) * 0.15)) : Color.primary.opacity(0.02 * Double(level)))
+                node.kind == .leftover
+                    ? Color.orange.opacity(0.07)
+                    : level == 0
+                        ? cpuTint.opacity(min(0.07, (node.cpu ?? 0) * 0.15)) : Color.primary.opacity(0.02 * Double(level)))
             .overlay(alignment: .bottom) { Divider().opacity(level == 0 ? 0.45 : 0.25) }
+            .contextMenu { actions(for: node) }
+    }
+    /// Quit for apps (as from their own menu), stop for processes and sessions. Every
+    /// action is confirmed; macOS's processes and Kolom's own are never offered.
+    @ViewBuilder private func actions(for node: ProcessNode) -> some View {
+        let target = StopTarget(node: node)
+        if let target {
+            Button(target.title(force: false)) { confirm(target, force: false) }
+            Button(target.title(force: true)) { confirm(target, force: true) }
+        } else {
+            Text(
+                node.kind == .system || !node.stoppable
+                    ? "Belongs to macOS or another user; not stopped from here"
+                    : "Kolom doesn’t stop itself from here; use Quit Kolom")
+        }
+        if let pid = node.pid {
+            Divider()
+            Button("Copy PID \(String(pid))") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(String(pid), forType: .string)
+            }
+        }
+    }
+    private func confirm(_ target: StopTarget, force: Bool) {
+        let alert = NSAlert()
+        alert.messageText = target.question(force: force)
+        alert.informativeText = target.explanation(force: force)
+        alert.alertStyle = force ? .critical : .warning
+        alert.addButton(withTitle: target.button(force: force))
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        notice = "\(target.button(force: force)) · \(target.name)…"
+        target.perform(force: force) { result in notice = result }
+    }
+    private func processNode(_ process: ProcessResource) -> ProcessNode {
+        ProcessNode(
+            id: process.id, kind: .process, title: process.name, detail: process.detail, pid: process.pid, count: 1,
+            cpu: process.cpu, gpu: process.gpu, memory: process.memory, network: process.network, children: [],
+            pids: [process.pid], stoppable: process.stoppable, searchText: "")
     }
     private func processRow(_ process: ProcessResource) -> some View {
         HStack(spacing: 12) {
@@ -345,47 +419,64 @@ struct PerformanceDashboard: View {
                 Spacer(minLength: 0)
             }.frame(maxWidth: .infinity, alignment: .leading)
             metrics(
-                cpu: process.cpu, gpu: process.gpu, memory: process.memory, cpuHistory: process.cpuHistory.samples,
-                gpuHistory: process.gpuHistory.samples, memoryHistory: process.memoryHistory.samples)
+                cpu: process.cpu, gpu: process.gpu, memory: process.memory, network: process.network,
+                cpuHistory: process.cpuHistory.samples, gpuHistory: process.gpuHistory.samples,
+                memoryHistory: process.memoryHistory.samples, networkHistory: process.networkHistory.samples)
         }.padding(.vertical, 9)
             .overlay(alignment: .bottom) { Divider().opacity(0.3) }
+            .contextMenu { actions(for: processNode(process)) }
     }
     @ViewBuilder private func metrics(
-        cpu: Double?, gpu: Double?, memory: Double?, cpuHistory: [Double?], gpuHistory: [Double?],
-        memoryHistory: [Double?]
+        cpu: Double?, gpu: Double?, memory: Double?, network: Double?, cpuHistory: [Double?], gpuHistory: [Double?],
+        memoryHistory: [Double?], networkHistory: [Double?]
     ) -> some View {
-        metric(resourcePercent(cpu), history: cpuHistory, tint: cpuTint, width: 84)
+        metric(resourcePercent(cpu), history: cpuHistory, tint: cpuTint, width: 76)
         if monitor.gpuMeasured {
-            metric(resourcePercent(gpu), history: gpuHistory, tint: gpuTint, width: 84)
+            metric(resourcePercent(gpu), history: gpuHistory, tint: gpuTint, width: 72)
         } else {
-            VStack(alignment: .trailing, spacing: 5) {
-                Text("—").font(.system(size: 11)).foregroundColor(.secondary)
-                Color.clear.frame(width: 40, height: 13)
-            }.frame(width: 84, alignment: .trailing).help("This Mac’s GPU does not report per-app time")
+            unavailable(width: 72, help: "This Mac’s GPU does not report per-app time")
         }
-        metric(resourceBytes(memory), history: memoryHistory, tint: memoryTint, width: 100)
+        metric(resourceBytes(memory), history: memoryHistory, tint: memoryTint, width: 92)
+        if monitor.networkMeasured {
+            metric(resourceRate(network), history: networkHistory, tint: networkTint, width: 84)
+        } else {
+            unavailable(width: 84, help: "Starting nettop, Apple’s per-process network reader…")
+        }
+    }
+    private func unavailable(width: CGFloat, help: String) -> some View {
+        VStack(alignment: .trailing, spacing: 5) {
+            Text("—").font(.system(size: 11)).foregroundColor(.secondary)
+            Color.clear.frame(width: 40, height: 13)
+        }.frame(width: width, alignment: .trailing).help(help)
     }
     private func metric(_ value: String, history: [Double?], tint: Color, width: CGFloat) -> some View {
         VStack(alignment: .trailing, spacing: 5) {
             Text(value).font(.system(size: 11, weight: .medium, design: .monospaced)).monospacedDigit()
-            ResourceSparkline(samples: history, tint: tint, relative: true).frame(width: 70, height: 13)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            ResourceSparkline(samples: history, tint: tint, relative: true).frame(width: 64, height: 13)
         }.frame(width: width, alignment: .trailing)
     }
     private var footnote: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(
-                "Processes are grouped under the app macOS holds responsible for them, as Activity Monitor does: a terminal’s shells and everything they run, a browser’s tabs. Unfold an app for its sessions (named by shell and folder), then for their processes. Background services of macOS share one row."
+                "Processes are grouped under the app macOS holds responsible for them, as Activity Monitor does: a terminal’s shells and everything they run, a browser’s tabs and AutoFill. Unfold an app for its sessions (named by shell and folder), then for their processes. Left running marks programs whose terminal session has closed. Widgets and extensions, which macOS keeps loaded even while their apps are closed, share one row; so do macOS’s background services."
+            )
+            Text(
+                "Right-click a row to quit an app (as from its own menu; it may ask to save) or stop a session or process; Force variants end them at once. Every action asks first. macOS’s processes and Kolom’s own are not offered."
             )
             Text(
                 "CPU is normalized across all cores: 100% means the whole Mac. GPU is each app’s share of GPU time, as the GPU itself accounts it; engines run side by side, so shares can add up past the GPU widget. Memory is physical footprint; shared allocations can overlap."
             )
             Text(
-                "Safari and other WebKit browsers run tabs, frames and extensions in separate Web Content processes; macOS does not say which tab each one is. Per-app network traffic needs administrator access, so only the Mac’s total is shown. \(monitor.inaccessibleProcesses) protected or exited processes could not be sampled."
+                "Safari and other WebKit browsers run tabs, frames and extensions in separate Web Content processes; macOS does not say which tab each one is. Network is bytes sent and received per second from Apple’s nettop, which runs only while this dashboard is open; processes without network activity show 0. Other users’ processes (WindowServer and macOS’s daemons) are read through ps: CPU is their recent average and memory their resident size. The kernel (kernel_task, which also runs drivers such as USB and DisplayLink’s) cannot be read without administrator access. \(monitor.inaccessibleProcesses) exited processes could not be sampled."
             )
         }.font(.system(size: 10)).foregroundColor(.secondary).lineSpacing(3)
     }
 }
 
 private extension ProcessNode {
-    var level0: Bool { kind == .app || kind == .system || (kind == .process && depth == 0 && !id.contains("/")) }
+    var level0: Bool {
+        kind == .app || kind == .system || kind == .notable || kind == .extensions
+            || (kind == .process && depth == 0 && !id.contains("/"))
+    }
 }
