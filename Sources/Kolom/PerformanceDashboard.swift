@@ -7,6 +7,7 @@ private let cpuTint = Color(red: 0.37, green: 0.57, blue: 0.24)
 private let memoryTint = Color(red: 0.28, green: 0.49, blue: 0.74)
 private let networkTint = Color(red: 0.60, green: 0.40, blue: 0.68)
 private let gpuTint = Color(red: 0.80, green: 0.47, blue: 0.20)
+private let storageTint = Color(red: 0.55, green: 0.47, blue: 0.30)
 
 struct ResourceSparkline: View {
     let samples: [Double?]
@@ -76,6 +77,8 @@ struct PerformanceDashboard: View {
     @DashboardState private var query = ""
     @DashboardState private var expanded: Set<String> = []
     @DashboardState private var notice: String?
+    @DashboardState private var showStorage = false
+    @DashboardState private var showHelp = false
     let close: () -> Void
 
     private func value(_ cpu: Double?, _ gpu: Double?, _ memory: Double?, _ network: Double?) -> Double {
@@ -127,9 +130,12 @@ struct PerformanceDashboard: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     widgets
-                    insight
-                    table
-                    footnote
+                    if showStorage {
+                        StorageView(back: { setStorage(false) })
+                    } else {
+                        insight
+                        table
+                    }
                 }.padding(20)
             }
             HStack(spacing: 6) {
@@ -144,13 +150,37 @@ struct PerformanceDashboard: View {
         .background(KolomSurface(theme: theme)).foregroundColor(.primary)
         .preferredColorScheme(theme == "Light" ? .light : .dark)
         .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1) }
-        .onAppear { monitor.beginDetails() }.onDisappear { monitor.endDetails() }
-        .onExitCommand(perform: close)
+        .overlay {
+            if showHelp {
+                ZStack(alignment: .trailing) {
+                    Color.black.opacity(0.18).onTapGesture { withAnimation(.easeOut(duration: 0.18)) { showHelp = false } }
+                    PerformanceHelp(theme: theme, unreadable: monitor.inaccessibleProcesses) {
+                        withAnimation(.easeOut(duration: 0.18)) { showHelp = false }
+                    }.frame(width: 420).transition(.move(edge: .trailing))
+                }.transition(.opacity)
+            }
+        }
+        .onAppear { if !showStorage { monitor.beginDetails() } }.onDisappear { monitor.endDetails() }
+        .onExitCommand {
+            if showHelp {
+                withAnimation(.easeOut(duration: 0.18)) { showHelp = false }
+            } else {
+                close()
+            }
+        }
     }
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Performance").font(.system(size: 22, weight: .semibold, design: .rounded))
+                HStack(spacing: 8) {
+                    Text("Performance").font(.system(size: 22, weight: .semibold, design: .rounded))
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) { showHelp.toggle() }
+                    } label: {
+                        Image(systemName: "questionmark.circle").font(.system(size: 14)).foregroundColor(.secondary)
+                    }.buttonStyle(.plain).help("How Performance groups and measures")
+                        .accessibilityLabel("How Performance works")
+                }
                 Text("A little clarity about what’s working hard.").font(.system(size: 11)).foregroundColor(.secondary)
             }
             Spacer()
@@ -172,7 +202,48 @@ struct PerformanceDashboard: View {
             widget(
                 "NETWORK", resourceBytes(monitor.network), "per second · ↑ + ↓", monitor.networkHistory.samples,
                 networkTint, nil)
+            storageWidget
         }
+    }
+    /// Process sampling (ps, nettop) pauses while the storage view is shown.
+    private func setStorage(_ shown: Bool) {
+        showStorage = shown
+        if shown { monitor.endDetails() } else { monitor.beginDetails() }
+    }
+    private var storageWidget: some View {
+        Button {
+            setStorage(!showStorage)
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 4) {
+                    Text("STORAGE").font(.system(size: 9, weight: .semibold)).tracking(0.8)
+                    Spacer(minLength: 0)
+                    Image(systemName: showStorage ? "xmark" : "chevron.right").font(.system(size: 8))
+                }.foregroundColor(.secondary)
+                Text(monitor.startupDisk.map { StorageFormat.bytes($0.available) } ?? "—")
+                    .font(.system(size: 20, weight: .medium, design: .rounded)).monospacedDigit()
+                    .minimumScaleFactor(0.6).lineLimit(1)
+                Text(
+                    monitor.startupDisk.map { "free of \(StorageFormat.bytes($0.total))" } ?? "startup disk"
+                ).font(.system(size: 9)).foregroundColor(.secondary).lineLimit(1)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(storageTint.opacity(0.15))
+                        Capsule().fill(storageTint).frame(
+                            width: geo.size.width
+                                * (monitor.startupDisk.map { 1 - Double($0.available) / Double(max(1, $0.total)) } ?? 0))
+                    }
+                }.frame(height: 5).padding(.top, 12)
+                Text(monitor.diskCount > 1 ? "+\(monitor.diskCount - 1) more disk\(monitor.diskCount == 2 ? "" : "s")" : " ")
+                    .font(.system(size: 8)).foregroundColor(.secondary).lineLimit(1)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(storageTint.opacity(showStorage ? 0.14 : 0.055)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12).stroke(storageTint.opacity(showStorage ? 0.45 : 0.12), lineWidth: showStorage ? 1 : 0.5)
+                )
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).help(showStorage ? "Back to processes" : "Disks and their largest folders")
+            .accessibilityLabel("Storage, \(monitor.startupDisk.map { StorageFormat.bytes($0.available) } ?? "unknown") free. Show disks.")
     }
     private func widget(
         _ title: String, _ value: String, _ subtitle: String, _ history: [Double?], _ tint: Color, _ ceiling: Double?
@@ -455,22 +526,6 @@ struct PerformanceDashboard: View {
                 .lineLimit(1).minimumScaleFactor(0.8)
             ResourceSparkline(samples: history, tint: tint, relative: true).frame(width: 64, height: 13)
         }.frame(width: width, alignment: .trailing)
-    }
-    private var footnote: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(
-                "Processes are grouped under the app macOS holds responsible for them, as Activity Monitor does: a terminal’s shells and everything they run, a browser’s tabs and AutoFill. Unfold an app for its sessions (named by shell and folder), then for their processes. Left running marks programs whose terminal session has closed. Widgets and extensions, which macOS keeps loaded even while their apps are closed, share one row; so do macOS’s background services."
-            )
-            Text(
-                "Right-click a row to quit an app (as from its own menu; it may ask to save) or stop a session or process; Force variants end them at once. Every action asks first. macOS’s processes and Kolom’s own are not offered."
-            )
-            Text(
-                "CPU is normalized across all cores: 100% means the whole Mac. GPU is each app’s share of GPU time, as the GPU itself accounts it; engines run side by side, so shares can add up past the GPU widget. Memory is physical footprint; shared allocations can overlap."
-            )
-            Text(
-                "Safari and other WebKit browsers run tabs, frames and extensions in separate Web Content processes; macOS does not say which tab each one is. Network is bytes sent and received per second from Apple’s nettop, which runs only while this dashboard is open; processes without network activity show 0. Other users’ processes (WindowServer and macOS’s daemons) are read through ps: CPU is their recent average and memory their resident size. The kernel (kernel_task, which also runs drivers such as USB and DisplayLink’s) cannot be read without administrator access. \(monitor.inaccessibleProcesses) exited processes could not be sampled."
-            )
-        }.font(.system(size: 10)).foregroundColor(.secondary).lineSpacing(3)
     }
 }
 

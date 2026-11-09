@@ -12,6 +12,11 @@ final class ResourceMonitor: ObservableObject {
     @Published var memory: Double?
     @Published var network: Double?
     @Published var gpu: Double?
+    /// The startup disk's available and total bytes, and how many disks are mounted;
+    /// read every ten seconds.
+    @Published var startupDisk: (available: UInt64, total: UInt64)?
+    @Published var diskCount = 0
+    private var diskTicks = 0
     @Published var gpuHistory = ResourceHistory()
     @Published var cpuHistory = ResourceHistory()
     @Published var memoryHistory = ResourceHistory()
@@ -118,6 +123,19 @@ final class ResourceMonitor: ObservableObject {
         previousNetwork = next
         previousTime = now
         let gpuValue = GPUStatistics.utilization()
+        var disk: (UInt64, UInt64)?
+        var disks: Int?
+        if diskTicks % 5 == 0 {
+            let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
+            if let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: keys),
+                let total = values.volumeTotalCapacity, total > 0
+            {
+                let available = UInt64(max(0, values.volumeAvailableCapacityForImportantUsage ?? 0))
+                disk = (min(available, UInt64(total)), UInt64(total))
+            }
+            disks = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes])?.count
+        }
+        diskTicks += 1
         var detail: ProcessResourceSampler.Result?
         var icons: [String: NSImage] = [:]
         var traffic: [Int32: Double]?
@@ -157,6 +175,8 @@ final class ResourceMonitor: ObservableObject {
             self?.memory = memoryValue
             self?.network = networkValue
             self?.gpu = gpuValue
+            if let disk { self?.startupDisk = disk }
+            if let disks { self?.diskCount = disks }
         }
     }
 }
