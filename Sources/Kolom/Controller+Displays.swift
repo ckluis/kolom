@@ -41,24 +41,12 @@ extension KolomController {
         suspension = reason
         flushLayout()
         record("suspend", ["reason": reason.rawValue])
-        status =
-            reason == .otherSpace
-            ? "On another Space · Kolom keeps this layout and picks it up when you return"
-            : "Waiting while the Mac is asleep, locked or switched to another user"
+        status = "Waiting while the Mac is asleep, locked or switched to another user"
         layoutChanged?()
         writeLiveState()
     }
     func resume() {
         guard suspension != nil else { return }
-        // Woken or unlocked on another Space: wait there, without showing the rails first.
-        if suspension != .otherSpace, judgeSpaces() == false {
-            suspension = .otherSpace
-            record("suspend", ["reason": SuspensionReason.otherSpace.rawValue, "after": "wake"])
-            status = "On another Space · Kolom keeps this layout and picks it up when you return"
-            layoutChanged?()
-            writeLiveState()
-            return
-        }
         record("resume", ["from": suspension!.rawValue])
         suspension = nil
         expected = [:]
@@ -66,6 +54,8 @@ extension KolomController {
         holdSavedWindows()
         scheduleArrangement()
         status = "Managing this Space · pause restores the original window positions"
+        // Spaces may have changed while asleep or locked.
+        syncSpaces()
         layoutChanged?()
         // A Space change made just before sleep or lock is judged now; time spent
         // asleep does not count towards the settling limit.
@@ -82,17 +72,10 @@ extension KolomController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.rescueDroppedOnThisSpace() }
             return
         }
-        // Knowing which Space is shown, no guessing: wait on another, resume on return.
-        if let onManaged = judgeSpaces() {
+        // Knowing which Space each display shows: swap that display's strip.
+        if syncSpaces() != nil {
             if Set(realDisplays().map(\.id)) != Set(displays.map(\.id)) { screensChanged() }
-            if !onManaged {
-                // Asleep or locked already: keep that; resume judges the Space again.
-                if suspension == nil { suspend(.otherSpace) }
-            } else if suspension == .otherSpace {
-                resume()
-            } else if managing {
-                scheduleRefresh()
-            }
+            if managing { scheduleRefresh() }
             return
         }
         // Do not push the current Space's windows into a different Space.
@@ -110,20 +93,29 @@ extension KolomController {
         if !explained, spaceChangeUnexplainedAt == nil { spaceChangeUnexplainedAt = Date() }
         scheduleSpaceRecheck()
     }
-    /// Compares the Spaces shown with the managed ones (adopting displays and Spaces
-    /// that appeared). Returns nil when macOS does not say (Kolom then falls back to
-    /// pausing), true on the managed Spaces, false elsewhere. Acting is the caller's.
-    @discardableResult func judgeSpaces() -> Bool? {
-        guard enabled, !spaces.managed.isEmpty, let shown = Spaces.current() else { return nil }
-        let decision = spaces.judge(
-            shown.mapValues { .init(current: $0.current, all: $0.all) }, displays: realDisplays().map(\.id))
+    /// Brings each display's strip in line with the Space it shows: a display that
+    /// switched Space shows that Space's strip, and its previous strip waits. Returns
+    /// nil when macOS does not say which Space is shown (Kolom then pauses on a Space
+    /// change, as before 0.2.14).
+    @discardableResult func syncSpaces() -> Bool? {
+        guard enabled, let shown = Spaces.shown() else { return nil }
+        let live = Set(realDisplays().map(\.id))
+        let swapped = strips.update(shown.filter { live.contains($0.key) }, workspaces: &workspaces)
+        guard !swapped.isEmpty else { return true }
         record(
             "space",
             [
-                "shown": shown.mapValues { Int($0.current) }, "managed": spaces.managed.mapValues { Int($0) },
-                "away": { if case .away(let ids) = decision { return ids } else { return [String]() } }(),
+                "shown": strips.shown.mapValues { Int($0) }, "swapped": Array(swapped).sorted(),
+                "waiting": strips.elsewhere.count,
             ])
-        if case .away = decision { return false }
+        for d in displays where swapped.contains(d.id) {
+            workspaces[d.id]?.clampOffset(viewportWidth: viewport(d).width, desktopTail: true)
+            if commandDisplay == d.id { commandDisplay = nil }
+        }
+        // The strip shown is new to the screen: place its windows afresh.
+        expected = [:]
+        saveLayout()
+        layoutChanged?()
         return true
     }
 
@@ -323,6 +315,8 @@ extension KolomController {
                 workspaces: &self.workspaces, connected: connected.map(\.id), primary: primary,
                 live: Set(self.windows.keys).union(self.suspended.keys).union(self.startupHold.waiting))
             self.displays = connected
+            // A display that connected shows a Space; reconnects renumber them.
+            self.syncSpaces()
             self.commandDisplay = nil
             // Side panels stay open unless their display is gone; the staircase
             // itself reports a display change.
