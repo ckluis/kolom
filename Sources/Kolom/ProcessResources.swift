@@ -12,19 +12,25 @@ struct ProcessResource: Identifiable {
     let cpu: Double?
     let gpu: Double?
     let memory: Double?
+    let network: Double?
+    let stoppable: Bool
     var cpuHistory: ResourceHistory
     var gpuHistory: ResourceHistory
     var memoryHistory: ResourceHistory
+    var networkHistory: ResourceHistory
 }
 
 /// Read-only counters: libproc for CPU, memory, parents and folders; the IOKit
-/// registry for GPU time. No task ports, process termination, packet capture,
-/// subprocesses or privileged helper are required.
+/// registry for GPU time; Apple's `nettop` for network bytes per process (while the
+/// dashboard is open). No task ports, packet capture or privileged helper are required.
 final class ProcessResourceSampler {
     private var previous: [String: UInt64] = [:]
     private var previousGPU: [String: UInt64] = [:]
-    private var histories: [String: (ResourceHistory, ResourceHistory, ResourceHistory)] = [:]
-    private var nodeHistories: [String: (ResourceHistory, ResourceHistory, ResourceHistory)] = [:]
+    private typealias Histories = (ResourceHistory, ResourceHistory, ResourceHistory, ResourceHistory)
+    private static let emptyHistories = (ResourceHistory(), ResourceHistory(), ResourceHistory(), ResourceHistory())
+    private var histories: [String: Histories] = [:]
+    private var nodeHistories: [String: Histories] = [:]
+    private let uid = getuid()
     private var sampledAt: TimeInterval?
     private let home = FileManager.default.homeDirectoryForCurrentUser.path
     private let nanosecondsPerTick: Double = {
@@ -57,7 +63,9 @@ final class ProcessResourceSampler {
         var gpuMeasured: Bool
     }
 
-    func sample(apps: [ProcessOwnerApp]) -> Result {
+    /// `labels` are the names macOS registered processes under; `network` is bytes
+    /// per second per pid, nil when unavailable.
+    func sample(apps: [ProcessOwnerApp], labels: [Int32: String], network: [Int32: Double]?) -> Result {
         let now = ProcessInfo.processInfo.systemUptime
         let elapsed = sampledAt.map { now - $0 } ?? 0
         let gpuTimes = GPUStatistics.processTimes()
@@ -68,8 +76,11 @@ final class ProcessResourceSampler {
         var samples: [ProcessSample] = []
         var counters: [String: UInt64] = [:]
         var gpuCounters: [String: UInt64] = [:]
-        var nextHistory: [String: (ResourceHistory, ResourceHistory, ResourceHistory)] = [:]
+        var nextHistory: [String: Histories] = [:]
         var inaccessible = 0
+        // Other users' processes (WindowServer, root daemons) are closed to libproc;
+        // Apple's ps may read them.
+        let listed = PSSnapshot.read()
         for pid in pids.prefix(min(Int(found), pids.count)) where pid > 0 {
             var usage = rusage_info_v2()
             let success =
@@ -79,7 +90,31 @@ final class ProcessResourceSampler {
                     }
                 } == 0
             guard success else {
-                inaccessible += 1
+                guard let entry = listed?[pid] else {
+                    inaccessible += 1
+                    continue
+                }
+                let id = "\(pid):ps:\(entry.path)"
+                let cpu = entry.cpu / 100 / Double(ProcessInfo.processInfo.activeProcessorCount)
+                var gpu: Double?
+                if let gpuTimes {
+                    let time = gpuTimes[pid] ?? 0
+                    gpuCounters[id] = time
+                    gpu = processGPUShare(previous: previousGPU[id], current: time, elapsed: elapsed)
+                }
+                let traffic = network.map { $0[pid] ?? 0 }
+                var history = histories[id] ?? Self.emptyHistories
+                history.0.append(cpu)
+                history.1.append(gpu)
+                history.2.append(entry.memory)
+                history.3.append(traffic)
+                nextHistory[id] = history
+                samples.append(
+                    ProcessSample(
+                        id: id, pid: pid, parent: entry.parent, responsible: responsibleFor.map { $0(pid) },
+                        name: (entry.path as NSString).lastPathComponent, path: entry.path, directory: nil,
+                        system: ProcessSample.isSystem(path: entry.path, uid: entry.uid), user: entry.uid == uid,
+                        label: labels[pid], cpu: cpu, gpu: gpu, memory: entry.memory, network: traffic))
                 continue
             }
             let id = "\(pid):\(usage.ri_proc_start_abstime)"
@@ -105,27 +140,31 @@ final class ProcessResourceSampler {
                 gpu = processGPUShare(previous: previousGPU[id], current: time, elapsed: elapsed)
             }
             let memory = Double(usage.ri_phys_footprint)
-            var history = histories[id] ?? (ResourceHistory(), ResourceHistory(), ResourceHistory())
+            let traffic = network.map { $0[pid] ?? 0 }
+            var history = histories[id] ?? Self.emptyHistories
             history.0.append(cpu)
             history.1.append(gpu)
             history.2.append(memory)
+            history.3.append(traffic)
             nextHistory[id] = history
             counters[id] = total
             samples.append(
                 ProcessSample(
                     id: id, pid: pid, parent: hasInfo ? Int32(info.pbi_ppid) : 0, responsible: responsible,
-                    name: name, path: path, directory: system ? nil : workingDirectory(pid), system: system, cpu: cpu,
-                    gpu: gpu, memory: memory))
+                    name: name, path: path, directory: system ? nil : workingDirectory(pid), system: system,
+                    user: hasInfo && info.pbi_uid == uid, label: labels[pid], cpu: cpu, gpu: gpu, memory: memory,
+                    network: traffic))
         }
         var nodes = ProcessGrouping.tree(samples, apps: apps, home: home)
-        var nextNodes: [String: (ResourceHistory, ResourceHistory, ResourceHistory)] = [:]
+        var nextNodes: [String: Histories] = [:]
         func remember(_ node: inout ProcessNode) {
-            var history = nodeHistories[node.id] ?? (ResourceHistory(), ResourceHistory(), ResourceHistory())
+            var history = nodeHistories[node.id] ?? Self.emptyHistories
             history.0.append(node.cpu)
             history.1.append(node.gpu)
             history.2.append(node.memory)
+            history.3.append(node.network)
             nextNodes[node.id] = history
-            (node.cpuHistory, node.gpuHistory, node.memoryHistory) = history
+            (node.cpuHistory, node.gpuHistory, node.memoryHistory, node.networkHistory) = history
             for i in node.children.indices { remember(&node.children[i]) }
         }
         for i in nodes.indices { remember(&nodes[i]) }
@@ -134,12 +173,14 @@ final class ProcessResourceSampler {
         let processes = samples.map { sample -> ProcessResource in
             let history = nextHistory[sample.id]!
             return ProcessResource(
-                id: sample.id, pid: sample.pid, name: sample.name,
+                id: sample.id, pid: sample.pid, name: ProcessGrouping.displayName(sample),
                 detail: (["PID \(sample.pid)"]
                     + [sample.directory.map { ProcessGrouping.abbreviate($0, home: home) }].compactMap { $0 })
                     .joined(separator: " · "),
-                groupName: owners[sample.pid] ?? sample.name, cpu: sample.cpu, gpu: sample.gpu,
-                memory: sample.memory, cpuHistory: history.0, gpuHistory: history.1, memoryHistory: history.2)
+                groupName: owners[sample.pid] ?? ProcessGrouping.displayName(sample), cpu: sample.cpu,
+                gpu: sample.gpu, memory: sample.memory, network: sample.network,
+                stoppable: sample.user && !sample.system, cpuHistory: history.0, gpuHistory: history.1,
+                memoryHistory: history.2, networkHistory: history.3)
         }
         previous = counters
         previousGPU = gpuCounters
@@ -219,5 +260,104 @@ enum GPUStatistics {
             body(accelerator)
             IOObjectRelease(accelerator)
         }
+    }
+}
+
+/// Bytes per second per process from Apple's `nettop`, which reports every process
+/// with network activity (byte counts only, never contents) to a normal user. While
+/// the dashboard is open, a short `nettop` run every two seconds measures one second
+/// of traffic and exits: output to a pipe arrives only when nettop exits, and nothing
+/// is left running if Kolom quits.
+final class NetworkSampler {
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "Kolom.network", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    private var running: Process?
+    private var latest: [Int32: Double]?
+    private var measuredAt: TimeInterval?
+    private var generation = 0
+    static let executable = "/usr/bin/nettop"
+
+    /// The latest per-pid rates; nil until the first measurement, when it is stale,
+    /// or when nettop is missing.
+    var rates: [Int32: Double]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let measuredAt, ProcessInfo.processInfo.systemUptime - measuredAt < 8 else { return nil }
+        return latest
+    }
+
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard timer == nil, FileManager.default.isExecutableFile(atPath: Self.executable) else { return }
+        generation += 1
+        let current = generation
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 2, leeway: .milliseconds(250))
+        timer.setEventHandler { [weak self] in self?.measure(generation: current) }
+        self.timer = timer
+        timer.resume()
+    }
+
+    func stop() {
+        lock.lock()
+        defer { lock.unlock() }
+        generation += 1
+        timer?.cancel()
+        timer = nil
+        running?.terminate()
+        running = nil
+        latest = nil
+        measuredAt = nil
+    }
+
+    /// Runs on `queue`, one at a time: two samples one second apart; the second is the delta.
+    private func measure(generation current: Int) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: Self.executable)
+        task.arguments = ["-P", "-d", "-x", "-L", "2", "-s", "1", "-J", "bytes_in,bytes_out"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        task.standardInput = FileHandle.nullDevice
+        lock.lock()
+        guard generation == current else {
+            lock.unlock()
+            return
+        }
+        running = task
+        lock.unlock()
+        do { try task.run() } catch { return }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        let rates = NettopParser.rates(String(decoding: data, as: UTF8.self))
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == current else { return }
+        running = nil
+        if let rates {
+            latest = rates
+            measuredAt = ProcessInfo.processInfo.systemUptime
+        }
+    }
+
+}
+
+/// One `ps` listing, for processes libproc may not read: it reports every process,
+/// with CPU as its recent average share of one core and memory as resident size.
+enum PSSnapshot {
+    static func read() -> [Int32: PSListing.Entry]? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-Ao", PSListing.format]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        task.standardInput = FileHandle.nullDevice
+        do { try task.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        return PSListing.parse(String(decoding: data, as: UTF8.self))
     }
 }

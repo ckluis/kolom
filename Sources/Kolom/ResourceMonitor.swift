@@ -23,9 +23,15 @@ final class ResourceMonitor: ObservableObject {
     @Published var inaccessibleProcesses = 0
     @Published var detailsReady = false
     private var detailed = false
+    @Published var networkMeasured = false
     private let processSampler = ProcessResourceSampler()
-    func beginDetails() { queue.async { [weak self] in self?.detailed = true } }
+    private let networkSampler = NetworkSampler()
+    func beginDetails() {
+        networkSampler.start()
+        queue.async { [weak self] in self?.detailed = true }
+    }
     func endDetails() {
+        networkSampler.stop()
         queue.async { [weak self] in
             self?.detailed = false
             self?.processSampler.reset()
@@ -114,17 +120,24 @@ final class ResourceMonitor: ObservableObject {
         let gpuValue = GPUStatistics.utilization()
         var detail: ProcessResourceSampler.Result?
         var icons: [String: NSImage] = [:]
+        var traffic: [Int32: Double]?
         if detailed {
+            var labels: [Int32: String] = [:]
             let identities: [ProcessOwnerApp] = DispatchQueue.main.sync {
                 NSWorkspace.shared.runningApplications.compactMap { app in
+                    if let name = app.localizedName { labels[app.processIdentifier] = name }
                     guard let path = app.bundleURL?.path else { return nil }
                     let id = app.bundleIdentifier ?? path
                     if let icon = app.icon { icons[id] = icon }
                     return ProcessOwnerApp(
-                        pid: app.processIdentifier, path: path, id: id, name: app.localizedName ?? "App")
+                        pid: app.processIdentifier, path: path, id: id, name: app.localizedName ?? "App",
+                        owner: ProcessOwnerApp.isOwner(
+                            regular: app.activationPolicy == .regular, accessory: app.activationPolicy == .accessory,
+                            path: path))
                 }
             }
-            detail = processSampler.sample(apps: identities)
+            traffic = networkSampler.rates
+            detail = processSampler.sample(apps: identities, labels: labels, network: traffic)
         }
         DispatchQueue.main.async { [weak self] in
             self?.cpuHistory.append(cpuValue)
@@ -136,6 +149,7 @@ final class ResourceMonitor: ObservableObject {
                 self?.nodes = detail.nodes
                 self?.inaccessibleProcesses = detail.inaccessible
                 self?.gpuMeasured = detail.gpuMeasured
+                self?.networkMeasured = traffic != nil
                 self?.appIcons = icons
                 self?.detailsReady = true
             }

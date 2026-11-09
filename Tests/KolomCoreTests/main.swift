@@ -1199,7 +1199,7 @@ do {
     ]
     let tree = ProcessGrouping.tree(samples, apps: apps, home: home)
     let top = Dictionary(uniqueKeysWithValues: tree.map { ($0.title, $0) })
-    XCTAssertEqual(Set(top.keys), ["cmux", "Safari", "macOS", "postgres", "lonely"])
+    XCTAssertEqual(Set(top.keys), ["cmux", "Safari", "WindowServer", "Spotlight indexing", "postgres", "lonely"])
 
     let cmux = top["cmux"]!
     XCTAssertEqual(cmux.count, 8)  // login wrappers belong to the terminal, not to macOS
@@ -1226,8 +1226,8 @@ do {
     XCTAssertTrue(safari.children[1].detail.contains("does not say which tab"))
     XCTAssertTrue(safari.matches("webcontent"))
 
-    XCTAssertEqual(top["macOS"]!.id, ProcessGrouping.systemID)
-    XCTAssertEqual(top["macOS"]!.count, 2)
+    XCTAssertEqual(top["WindowServer"]!.kind, .notable)
+    XCTAssertFalse(top["WindowServer"]!.stoppable)
     XCTAssertEqual(top["postgres"]!.count, 2)  // workers join the process responsible for them
     XCTAssertEqual(top["lonely"]!.kind, .process)
     XCTAssertTrue(top["lonely"]!.children.isEmpty)
@@ -1251,6 +1251,102 @@ do {
     XCTAssertEqual(named("1.2.3", "/opt/tool/1.2.3"), "tool 1.2.3")
     XCTAssertEqual(named("node", "/opt/homebrew/bin/node"), "node")
     XCTAssertEqual(named("com.apple.WebKit.WebContent", ""), "Web Content")
+    // Things macOS registers as apps without being apps of their own (0.2.6).
+    do {
+        let cryptex = "/System/Volumes/Preboot/Cryptexes/OS/System/Library"
+        let registered = apps + [
+            ProcessOwnerApp(pid: 600, path: cryptex + "/AutoFill.xpc", id: "autofill", name: "AutoFill (cmux)", owner: false),
+            ProcessOwnerApp(pid: 601, path: "/opt/homebrew/bin", id: "npm", name: "npm run dev", owner: false),
+            ProcessOwnerApp(pid: 603, path: "/System/Applications/Stocks.app/Contents/PlugIns/StocksWidget.appex",
+                id: "stocks.widget", name: "StocksWidget", owner: false),
+            ProcessOwnerApp(pid: 604, path: "/System/Library/CoreServices/WallpaperAgent.app", id: "wallpaper",
+                name: "Wallpaper", owner: false),
+            ProcessOwnerApp(pid: 605, path: "/Applications/Tool.app", id: "tool", name: "Tool", owner: true),
+        ]
+        var extra = samples
+        var autofill = process(600, "AutoFill", responsible: 100, path: cryptex + "/AutoFill.xpc/Contents/MacOS/AutoFill",
+            system: true)
+        autofill.label = "AutoFill (cmux)"
+        extra.append(autofill)
+        // A dev server whose terminal session closed: parented by launchd, still cmux's responsibility.
+        var dev = process(601, "node", responsible: 100, path: "/opt/homebrew/bin/node", directory: "/Users/me/app")
+        dev.label = "npm run dev"
+        extra.append(dev)
+        extra.append(process(602, "esbuild", parent: 601, responsible: 100, path: "/Users/me/app/node_modules/esbuild"))
+        extra.append(process(603, "StocksWidget",
+            path: "/System/Applications/Stocks.app/Contents/PlugIns/StocksWidget.appex/Contents/MacOS/StocksWidget",
+            system: true))
+        extra.append(process(604, "WallpaperAgent",
+            path: "/System/Library/CoreServices/WallpaperAgent.app/Contents/MacOS/WallpaperAgent", system: true))
+        extra.append(process(605, "Tool", path: "/Applications/Tool.app/Contents/MacOS/Tool"))
+        var rootOwned = process(606, "rootd", path: "/opt/rootd")
+        rootOwned.user = false
+        extra.append(rootOwned)
+        let smarter = ProcessGrouping.tree(extra, apps: registered, home: home)
+        let rows = Dictionary(uniqueKeysWithValues: smarter.map { ($0.title, $0) })
+        XCTAssertEqual(
+            Set(rows.keys),
+            ["cmux", "Safari", "macOS", "postgres", "lonely", "Widgets & extensions", "Tool", "rootd", "WindowServer",
+             "Spotlight indexing"])
+        let terminal = rows["cmux"]!
+        XCTAssertEqual(terminal.count, 11)
+        XCTAssertTrue(terminal.children.contains { $0.title == "AutoFill (cmux)" && $0.kind == .process })
+        let left = terminal.children.first { $0.kind == .leftover }!
+        XCTAssertEqual(left.title, "Left running")
+        XCTAssertEqual(left.count, 2)
+        XCTAssertTrue(left.detail.contains("terminal session that started it has closed"))
+        XCTAssertEqual(left.children.map(\.title), ["npm run dev · app"])
+        XCTAssertEqual(left.children[0].children.map(\.title), ["npm run dev", "esbuild"])
+        XCTAssertTrue(left.children[0].children[0].detail.contains("node"))
+        XCTAssertEqual(rows["Widgets & extensions"]!.count, 1)
+        XCTAssertEqual(rows["Widgets & extensions"]!.children.map(\.title), ["Widgets"])
+        // The usual suspects of a slow Mac leave the macOS row for their own.
+        XCTAssertEqual(rows["WindowServer"]!.kind, .notable)
+        XCTAssertTrue(rows["WindowServer"]!.detail.contains("DisplayLink"))
+        XCTAssertEqual(rows["Spotlight indexing"]!.count, 1)
+        XCTAssertEqual(rows["macOS"]!.count, 1)  // WallpaperAgent
+        XCTAssertEqual(rows["Tool"]!.kind, .app)
+        XCTAssertEqual(rows["Tool"]!.appID, "tool")
+        // Stopping is offered only for the user's own processes outside macOS.
+        XCTAssertTrue(left.stoppable && terminal.stoppable)
+        // A session is stoppable through its own processes; root-owned login is left to end with its shell.
+        let kolomSession = terminal.children.first { $0.title == "zsh · kolom" }!
+        XCTAssertTrue(kolomSession.stoppable)
+        XCTAssertEqual(Set(kolomSession.pids), [111, 112, 113])
+        XCTAssertFalse(terminal.children.first { $0.title == "AutoFill (cmux)" }!.stoppable)
+        XCTAssertFalse(rows["macOS"]!.stoppable)
+        XCTAssertFalse(rows["rootd"]!.stoppable)
+        XCTAssertTrue(rows["lonely"]!.stoppable)
+        XCTAssertEqual(Set(left.pids), [601, 602])
+        XCTAssertEqual(Set(ids(smarter)).count, ids(smarter).count)
+        XCTAssertEqual(smarter.map(\.count).reduce(0, +), extra.count)
+    }
+    XCTAssertTrue(ProcessOwnerApp.isOwner(regular: true, accessory: false, path: "/System/Library/CoreServices/Finder.app"))
+    XCTAssertTrue(ProcessOwnerApp.isOwner(regular: false, accessory: true, path: "/Applications/Kolom.app"))
+    XCTAssertFalse(ProcessOwnerApp.isOwner(regular: false, accessory: true, path: "/System/Library/CoreServices/WallpaperAgent.app"))
+    XCTAssertFalse(ProcessOwnerApp.isOwner(regular: false, accessory: false, path: "/Applications/X.app"))
+    // nettop -P -d -x -J bytes_in,bytes_out
+    XCTAssertTrue(NettopParser.isHeader(",bytes_in,bytes_out,"))
+    XCTAssertTrue(NettopParser.line(",bytes_in,bytes_out,") == nil)
+    XCTAssertEqual(NettopParser.line("gh.37667,5000,2186,")!.pid, 37667)
+    XCTAssertEqual(NettopParser.line("gh.37667,5000,2186,")!.bytes, 7186)
+    XCTAssertEqual(NettopParser.line("com.apple.WebKi.1320,200,30,")!.pid, 1320)
+    XCTAssertEqual(NettopParser.line("2.1.299.1559,1,2,")!.pid, 1559)
+    XCTAssertEqual(NettopParser.line("odd,name.42,1,2,")!.pid, 42)
+    XCTAssertTrue(NettopParser.line("garbage") == nil)
+    XCTAssertTrue(NettopParser.line("x.notapid,1,2,") == nil)
+    let twoSamples = ",bytes_in,bytes_out,\ngh.7,900,100,\n,bytes_in,bytes_out,\ngh.7,30,10,\nnode.8,0,0,\n"
+    XCTAssertEqual(NettopParser.rates(twoSamples)![7]!, 40)
+    XCTAssertEqual(NettopParser.rates(twoSamples)![8]!, 0)
+    XCTAssertTrue(NettopParser.rates(",bytes_in,bytes_out,\ngh.7,900,100,\n") == nil)  // stopped early
+    let listing = PSListing.parse(
+        "  609     1    88  16.0 108800 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer\n"
+            + "81761     1   501   4.7 208064 /Applications/DisplayLink Manager.app/Contents/MacOS/DisplayLinkUserAgent\nbad line\n")
+    XCTAssertEqual(listing.count, 2)
+    XCTAssertEqual(listing[609]!.uid, 88)
+    XCTAssertEqual(listing[609]!.cpu, 16.0)
+    XCTAssertEqual(listing[609]!.memory, 108800 * 1024)
+    XCTAssertEqual(listing[81761]!.path, "/Applications/DisplayLink Manager.app/Contents/MacOS/DisplayLinkUserAgent")
     XCTAssertTrue(ProcessSample.isSystem(path: "/usr/sbin/cfprefsd", uid: 501))
     XCTAssertTrue(ProcessSample.isSystem(path: "/opt/x", uid: 0))
     XCTAssertFalse(ProcessSample.isSystem(path: "/bin/zsh", uid: 501))
@@ -1260,7 +1356,7 @@ do {
     XCTAssertTrue(processGPUShare(previous: nil, current: 5, elapsed: 2) == nil)
     XCTAssertTrue(processGPUShare(previous: 9, current: 5, elapsed: 2) == nil)
     XCTAssertEqual(processGPUShare(previous: 0, current: 1_000_000_000, elapsed: 2)!, 0.5)
-    print("PASS: performance groups processes by responsible app, session and kind, with GPU shares")
+    print("PASS: performance groups processes by responsible app, session and kind, with GPU shares, network and stop rules")
 }
 
 do {

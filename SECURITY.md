@@ -17,6 +17,10 @@ Use [GitHub private vulnerability reporting](https://github.com/ckluis/kolom/sec
 
 `kolomctl` and its MCP server talk to Kolom through files in that folder. Read-only commands always work. Commands that move or create windows work only after you choose **Allow local agent commands…** in the menu bar icon's menu, and stop when you turn them off or quit. The session token only switches the channel on; it is not authentication, because any process running as your user can read it. Treat enabling agent commands as trusting every process in your user session. Requests are refused if they are FIFOs, symlinks, devices or oversized, and each one expires after 30 seconds.
 
+## Performance dashboard
+
+While it is open, the dashboard reads process counters through libproc and the IOKit registry, and runs two Apple tools as your user: `/usr/bin/nettop` (one-second runs, byte counts per process, never contents) and `/bin/ps` (for processes libproc may not read). Nothing runs while it is closed, and nothing is sent anywhere. Right-clicking a row can quit an app or send SIGTERM or SIGKILL to processes; only your own processes outside macOS's folders are offered, never Kolom's own, and every action asks first. Agents and `kolomctl` cannot stop processes.
+
 ## Ask Kolom
 
 Ask Kolom (⌥K) takes a request you type and has Apple's on-device model (FoundationModels, macOS 26) turn it into one typed action. `resolveAsk` checks that action (sizes, a 60-window maximum, known commands only; unknown requests are explained, not run) and Kolom runs it in-process through its existing code. It performs typed actions only, never shell text, and starts no agent session or file-channel request, so it works without the local agent opt-in because it is your own request. Nothing leaves the Mac. Grids it creates are recorded in `agent/operations` like agent grids, so an agent session you have enabled could undo or redo them.
