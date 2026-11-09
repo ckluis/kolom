@@ -1,3 +1,8 @@
+## 0.2.5 — 2026-11-09
+
+- Quitting by signal (`install.sh --quit-running`, and so **Update now…** and the copied update command) no longer hangs. Since 0.2.2 the SIGTERM handler called Quit from inside a main-queue block, and Quit waits for window restoration that is queued on that same main queue, so Kolom waited forever and the installer gave up after two minutes. Quit now starts after the handler returns; measured: paused, windows restored by Kolom itself and every process gone in about 4 seconds.
+- Updating from 0.2.2, 0.2.3 or 0.2.4, which always hang this way, the installer stops them outright instead of waiting; their recovery helper restores the windows, as after a crash. Other versions are still asked to quit.
+
 ## 0.2.4 — 2026-11-09
 
 - **Check for updates now** answers. The menu closed before GitHub replied and the result went to a status line inside it, so the check seemed to do nothing. It now answers in a dialog: up to date, couldn't check (and why), or a newer version with **Update Now**, **Copy Update Command** and **What's New**.

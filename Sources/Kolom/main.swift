@@ -63,7 +63,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         NSApp.setActivationPolicy(.accessory)
         signal(SIGTERM, SIG_IGN)
         let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        terminate.setEventHandler { NSApp.terminate(nil) }
+        // Not NSApp.terminate here: quitting restores windows through work queued on
+        // the main queue, which cannot run while this handler (a main-queue block) is
+        // still on the stack, so 0.2.2–0.2.4 waited forever. A run-loop perform starts
+        // the quit after the handler has returned.
+        terminate.setEventHandler {
+            NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+        }
         terminate.resume()
         terminationSignal = terminate
         installMenu()
