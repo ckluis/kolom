@@ -10,7 +10,7 @@ credited in THIRD-PARTY-NOTICES.md.
 
 | PR | Version | Scope |
 |---|---|---|
-| 1 | 0.2.8 | Window, parallel scan with live overview, squarified treemap coloured by kind, reclaimable hatch, selection, go in / up with animated zoom, breadcrumbs with sibling menus, keyboard, back/forward, side panel (selection, Worth a look, disk), Storage panel opens it |
+| 1 | 0.2.8 | Window (a panel beside Performance since 0.2.9), parallel scan with live overview, squarified treemap coloured by kind, reclaimable hatch, selection, go in / up with animated zoom, breadcrumbs with sibling menus, keyboard, back/forward, side panel (selection, Worth a look, disk), Storage panel opens it |
 | 2 | 0.2.9 | Marking (no double counting, marks absorb marks inside them), review screen, Move to Trash (default) and Delete permanently (asks), safety rules, rescan and space actually gained |
 | 3 | 0.2.10 | Scroll-to-zoom-and-enter, Age and Files modes, filter `/`, choose any folder (⌘O), hidden and apparent-size toggles, depth `[` `]`, key help `?` |
 

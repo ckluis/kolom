@@ -201,6 +201,9 @@ struct ResourceMonitorView: View {
                 row("NET", rate)
                 row("GPU", percent(monitor.gpu))
             }.padding(.horizontal, 5).padding(.vertical, 6)
+                // The whole block is the button, not just its text: a plain button only
+                // takes clicks on what it draws.
+                .contentShape(Rectangle())
         }.buttonStyle(.plain)
             .help("Open performance dashboard")
             .accessibilityLabel(

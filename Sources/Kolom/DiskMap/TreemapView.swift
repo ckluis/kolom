@@ -5,6 +5,8 @@ import KolomCore
 /// selection and for space that can be had back.
 enum DiskMapPalette {
     static let amber = NSColor(red: 0.91, green: 0.64, blue: 0.24, alpha: 1)
+    /// Marked for removal, and everything inside it.
+    static let danger = NSColor(red: 0.86, green: 0.28, blue: 0.24, alpha: 1)
 
     static func base(_ kind: DiskKind, dark: Bool) -> NSColor {
         let (h, s): (CGFloat, CGFloat) = {
@@ -199,6 +201,10 @@ final class TreemapView: NSView {
         fill.setFill()
         tile.rect.fill()
         if node.reclaim != nil { hatch(tile.rect, in: context) }
+        if let marks = model?.marks, marks.covers(node) {
+            DiskMapPalette.danger.withAlphaComponent(marks.isMarked(node) ? 0.62 : 0.30).setFill()
+            tile.rect.fill(using: .sourceOver)
+        }
         if tile.level == 0, node.isFolder {
             // A strip of the kind's own colour along the top of a top-level folder.
             DiskMapPalette.base(node.kind, dark: dark).setFill()
@@ -288,7 +294,12 @@ final class TreemapView: NSView {
         return tiles.last { $0.rect.contains(point) }?.node
     }
 
+    /// Space and X act on the tile under the pointer if the pointer moved last,
+    /// otherwise on the keyboard's selection.
+    private var pointerLast = false
+
     override func mouseMoved(with event: NSEvent) {
+        pointerLast = true
         let point = convert(event.locationInWindow, from: nil)
         let node = self.node(at: point)
         if node !== model?.hover {
@@ -306,7 +317,9 @@ final class TreemapView: NSView {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let node = node(at: point) else { return }
-        if event.clickCount >= 2 {
+        if event.modifierFlags.contains(.command) {
+            model?.toggleMark(node)  // ⌘-click marks without moving the selection
+        } else if event.clickCount >= 2 {
             model?.enter(node)
         } else {
             model?.select(node)
@@ -324,10 +337,18 @@ final class TreemapView: NSView {
 
     override func keyDown(with event: NSEvent) {
         guard let model else { return super.keyDown(with: event) }
+        if [123, 124, 125, 126, 48].contains(event.keyCode) { pointerLast = false }
         let command = event.modifierFlags.contains(.command)
         switch event.keyCode {
         case 36, 76: model.enter(model.selection ?? model.hover)  // return, enter
-        case 51, 53: if model.isScanning, event.keyCode == 53 { model.stop() } else { model.goUp() }  // delete, escape
+        case 51, 53:  // delete, escape
+            if model.isScanning, event.keyCode == 53 {
+                model.stop()
+            } else if event.keyCode == 53, model.focus?.parent == nil {
+                model.requestClose?()
+            } else {
+                model.goUp()
+            }
         case 123: command ? model.back() : model.move(.left)
         case 124: command ? model.forward() : model.move(.right)
         case 125: model.move(.down)
@@ -335,6 +356,8 @@ final class TreemapView: NSView {
         case 48: model.nextSibling(reverse: event.modifierFlags.contains(.shift))  // tab
         default:
             switch event.charactersIgnoringModifiers {
+            case " ", "x": model.toggleMark(pointerLast ? (model.hover ?? model.selection) : (model.selection ?? model.hover))
+            case "c": if !model.marks.isEmpty { model.reviewing = true }
             case "[" where command: model.back()
             case "]" where command: model.forward()
             case "r" where command: model.rescan()

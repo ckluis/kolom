@@ -45,7 +45,7 @@ struct StorageView: View {
 
     private func row(_ volume: StorageVolume) -> some View {
         Button {
-            DiskMapWindow.open(path: volume.url.path, name: volume.name, startupDisk: volume.startup)
+            DiskMapHost.open(path: volume.url.path, name: volume.name, startupDisk: volume.startup)
         } label: {
             HStack(spacing: 12) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: volume.url.path)).resizable().frame(width: 30, height: 30)
@@ -85,6 +85,6 @@ struct StorageView: View {
         panel.message = "Choose a folder to map"
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        DiskMapWindow.open(path: url.path, name: url.lastPathComponent, startupDisk: false)
+        DiskMapHost.open(path: url.path, name: url.lastPathComponent, startupDisk: false)
     }
 }

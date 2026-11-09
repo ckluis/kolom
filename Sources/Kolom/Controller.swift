@@ -25,6 +25,28 @@ final class KolomController: ObservableObject {
     @Published var performanceDisplay: String?
     @Published var guideDisplay: String?
     let performanceWidth: Double = 640
+    /// The Disk Map, a wide panel beside Performance on the same display.
+    @Published var diskMap: DiskMapModel.Target?
+    /// As wide as leaves a usable column beside it, within 520–1200 points.
+    func diskMapWidth(_ display: DisplayModel) -> Double {
+        max(520, min(1200, display.frame.width - 48 - performanceWidth - 400))
+    }
+    var diskMapShown: Bool { diskMap != nil && performanceDisplay != nil }
+    func openDiskMap(_ target: DiskMapModel.Target) {
+        if performanceDisplay == nil { togglePerformance() }
+        diskMap = target
+        if enabled, let id = performanceDisplay, let d = displays.first(where: { $0.id == id }),
+            let focus = workspaces[id]?.focus
+        {
+            workspaces[id]?.reveal(focus, viewportWidth: viewport(d).width)
+        }
+        apply()
+    }
+    func closeDiskMap() {
+        guard diskMap != nil else { return }
+        diskMap = nil
+        apply()
+    }
     @Published var status = "Demo mode · your desktop is unchanged"
     @Published var permissionGranted = false
     @Published var permissionDetails = ""
@@ -902,7 +924,10 @@ final class KolomController: ObservableObject {
             // Side panels stay open unless their display is gone; the staircase
             // itself reports a display change.
             let ids = Set(connected.map(\.id))
-            if let id = self.performanceDisplay, !ids.contains(id) { self.performanceDisplay = nil }
+            if let id = self.performanceDisplay, !ids.contains(id) {
+                self.performanceDisplay = nil
+                self.diskMap = nil
+            }
             if let id = self.guideDisplay, !ids.contains(id) { self.guideDisplay = nil }
             self.activeDisplay = primary
             self.expected = [:]
@@ -921,9 +946,10 @@ final class KolomController: ObservableObject {
     /// so opening the guide or Performance never narrows the remembered widths.
     func maxColumnWidth(_ display: DisplayModel) -> Double { max(260, display.frame.width - 48 - 32) }
     func viewport(_ display: DisplayModel) -> CGRect {
-        let shelf: Double =
+        var shelf: Double =
             performanceDisplay == display.id || guideDisplay == display.id
             ? performanceWidth : (commandDisplay == display.id ? 224 : 0)
+        if diskMapShown, performanceDisplay == display.id { shelf += diskMapWidth(display) }
         return CGRect(
             x: display.frame.minX + 48 + shelf + 16, y: display.frame.minY + 16,
             width: max(260, display.frame.width - 48 - shelf - 32), height: max(160, display.frame.height - 32))
@@ -1529,6 +1555,7 @@ final class KolomController: ObservableObject {
         let target = displayID ?? pointerDisplay()?.id ?? displays.first?.id
         guard let target else { return }
         performanceDisplay = performanceDisplay == target ? nil : target
+        if performanceDisplay == nil { diskMap = nil }
         guideDisplay = nil
         commandDisplay = nil
         if enabled, let d = displays.first(where: { $0.id == target }), let id = workspaces[target]?.focus {
@@ -1542,6 +1569,7 @@ final class KolomController: ObservableObject {
         guard let target else { return }
         guideDisplay = guideDisplay == target ? nil : target
         performanceDisplay = nil
+        diskMap = nil
         commandDisplay = nil
         if enabled, let d = displays.first(where: { $0.id == target }), let id = workspaces[target]?.focus {
             workspaces[target]?.reveal(id, viewportWidth: viewport(d).width)
@@ -1550,6 +1578,7 @@ final class KolomController: ObservableObject {
     }
     func toggleCommands(_ displayID: String? = nil) {
         performanceDisplay = nil
+        diskMap = nil
         guideDisplay = nil
         let d = displayID ?? activeDisplay
         commandDisplay = commandDisplay == d ? nil : d

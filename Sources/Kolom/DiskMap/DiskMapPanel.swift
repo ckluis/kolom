@@ -4,66 +4,30 @@ import SwiftUI
 
 private typealias MapState<Value> = SwiftUI.State<Value>
 
-/// The Disk Map window: one at a time; opening another disk replaces its scan.
-final class DiskMapWindow: NSObject, NSWindowDelegate {
-    private static var current: DiskMapWindow?
-    private let window: NSWindow
-    private let model: DiskMapModel
-
+/// Opens the Disk Map beside Performance; the app delegate connects it to the controller.
+enum DiskMapHost {
+    static var open: ((DiskMapModel.Target) -> Void)?
     static func open(path: String, name: String, startupDisk: Bool) {
-        if let current, current.model.target.path == path {
-            current.show()
-            return
-        }
-        current?.window.close()
-        let controller = DiskMapWindow(target: .init(path: path, name: name, startupDisk: startupDisk))
-        current = controller
-        controller.show()
-        controller.model.start()
+        open?(.init(path: path, name: name, startupDisk: startupDisk))
     }
+}
 
-    private init(target: DiskMapModel.Target) {
-        model = DiskMapModel(target: target)
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1240, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered,
-            defer: false)
-        super.init()
-        window.title = "Disk Map · \(target.name)"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.minSize = NSSize(width: 820, height: 520)
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.contentView = NSHostingView(rootView: DiskMapView(model: model))
-        window.setFrameAutosaveName("KolomDiskMap")
-        let theme = UserDefaults.standard.string(forKey: "kolomTheme") ?? "Light"
-        window.appearance = NSAppearance(named: theme == "Light" ? .aqua : .darkAqua)
-        if !window.setFrameUsingName("KolomDiskMap") { window.center() }
-    }
-
-    private func show() {
-        // A window of its own belongs in the Dock and ⌘-Tab while it is open.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        model.close()
-        if Self.current === self {
-            Self.current = nil
-            NSApp.setActivationPolicy(.accessory)
-        }
+/// The Disk Map's panel: takes the keyboard (arrows, Space, Enter) like Performance.
+final class DiskMapPanel: NSPanel {
+    var dismiss: (() -> Void)?
+    override var canBecomeKey: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { dismiss?() } else { super.keyDown(with: event) }
     }
 }
 
 struct DiskMapView: View {
     @ObservedObject var model: DiskMapModel
+    @KolomPreference("kolomTheme") private var theme = "Light"
 
     var body: some View {
         VStack(spacing: 0) {
-            DiskMapTopBar(model: model).padding(.leading, 78).padding(.trailing, 14).frame(height: 44)
+            DiskMapTopBar(model: model).padding(.horizontal, 14).frame(height: 48)
             Divider()
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -71,15 +35,41 @@ struct DiskMapView: View {
                         TreemapRepresentable(model: model)
                         if model.root == nil { DiskMapProgress(model: model) }
                     }
+                    if model.notice != nil || model.removing != nil { DiskMapNotice(model: model) }
                     DiskMapLegend().padding(.horizontal, 12).padding(.vertical, 7)
                 }
                 Divider()
-                DiskMapPanel(model: model).frame(width: 300)
+                DiskMapSidebar(model: model).frame(width: 300)
             }
         }
-        .frame(minWidth: 820, minHeight: 520)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .ignoresSafeArea(.container, edges: .top)
+        .background(KolomSurface(theme: theme)).foregroundColor(.primary)
+        .preferredColorScheme(theme == "Light" ? .light : .dark)
+        .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1) }
+        .sheet(isPresented: $model.reviewing) { DiskMapReview(model: model) }
+    }
+}
+
+/// One line under the map: why a mark was refused, removal progress, what came back.
+private struct DiskMapNotice: View {
+    @ObservedObject var model: DiskMapModel
+    var body: some View {
+        HStack(spacing: 8) {
+            if let removing = model.removing {
+                ProgressView(value: Double(removing.done), total: Double(max(1, removing.total))).frame(width: 120)
+                Text("Removing \(removing.done) of \(removing.total)…")
+            } else if let notice = model.notice {
+                Image(systemName: "info.circle").foregroundColor(.secondary)
+                Text(notice).lineLimit(2)
+                Spacer(minLength: 4)
+                Button {
+                    model.notice = nil
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 9))
+                }.buttonStyle(.plain).foregroundColor(.secondary)
+            }
+            Spacer(minLength: 0)
+        }.font(.system(size: 11)).padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Color.primary.opacity(0.04))
     }
 }
 
@@ -119,6 +109,13 @@ private struct DiskMapTopBar: View {
                 Label(model.isScanning ? "Stop" : "Rescan", systemImage: model.isScanning ? "stop.fill" : "arrow.clockwise")
                     .font(.system(size: 11))
             }.help(model.isScanning ? "Stop the scan · Escape" : "Scan again · ⌘R")
+            Button {
+                model.requestClose?()
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).padding(6).contentShape(Rectangle())
+            }.buttonStyle(.plain).foregroundColor(.secondary).help("Close the Disk Map · Escape at the top")
+                .accessibilityLabel("Close the Disk Map")
+                .padding(.trailing, -4)
         }
     }
 }
@@ -248,7 +245,7 @@ private struct HatchSwatch: View {
 
 // MARK: Side panel
 
-private struct DiskMapPanel: View {
+private struct DiskMapSidebar: View {
     @ObservedObject var model: DiskMapModel
     @Environment(\.colorScheme) private var scheme
 
@@ -258,6 +255,7 @@ private struct DiskMapPanel: View {
                 if let node = model.selection ?? model.focus {
                     selectionCard(node)
                 }
+                if !model.marks.isEmpty { marked }
                 if let root = model.root {
                     worthALook(root)
                 }
@@ -312,6 +310,44 @@ private struct DiskMapPanel: View {
         }.font(.system(size: 11))
     }
 
+    private var marked: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("MARKED").font(.system(size: 9, weight: .semibold)).tracking(0.8).foregroundColor(.secondary)
+                Spacer()
+                Button("Clear") { model.clearMarks() }.buttonStyle(.plain).font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text(StorageFormat.bytes(model.marks.bytes)).font(.system(size: 18, weight: .medium, design: .rounded))
+                    .foregroundColor(Color(nsColor: DiskMapPalette.danger))
+                Text("in \(model.marks.count) item\(model.marks.count == 1 ? "" : "s")").font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            ForEach(Array(model.marks.nodes.prefix(5).enumerated()), id: \.offset) { _, node in
+                HStack(spacing: 6) {
+                    Button {
+                        model.unmark(node)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                    }.buttonStyle(.plain).help("Unmark")
+                    Text(node.title).font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Text(StorageFormat.bytes(node.size)).font(.system(size: 11, design: .monospaced))
+                }
+            }
+            if model.marks.count > 5 {
+                Text("and \(model.marks.count - 5) more").font(.system(size: 10)).foregroundColor(.secondary)
+            }
+            Button {
+                model.reviewing = true
+            } label: {
+                Text("Review…").frame(maxWidth: .infinity)
+            }.controlSize(.large).buttonStyle(.borderedProminent).tint(Color(nsColor: DiskMapPalette.amber))
+                .help("Review what is marked, then move it to the Trash · C")
+        }
+    }
+
     private func worthALook(_ root: DiskNode) -> some View {
         let items = root.reclaimable(limit: 8)
         return VStack(alignment: .leading, spacing: 6) {
@@ -346,6 +382,10 @@ private struct DiskMapPanel: View {
                     Text(StorageFormat.bytes(available)).font(.system(size: 18, weight: .medium, design: .rounded))
                     Text("free of \(StorageFormat.bytes(capacity))").font(.system(size: 11)).foregroundColor(.secondary)
                 }
+                if !model.marks.isEmpty, let after = model.freeAfterMarks {
+                    Text("\(StorageFormat.bytes(after)) free after removing what is marked")
+                        .font(.system(size: 11, weight: .medium)).foregroundColor(Color(nsColor: DiskMapPalette.amber))
+                }
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.primary.opacity(0.08))
@@ -363,5 +403,79 @@ private struct DiskMapPanel: View {
 
     private func abbreviated(_ path: String) -> String {
         ProcessGrouping.abbreviate(path, home: FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+}
+
+// MARK: Review
+
+/// Everything marked, with what to know about each, then Move to Trash (the
+/// default: recoverable until the Trash is emptied) or Delete Permanently (asks).
+private struct DiskMapReview: View {
+    @ObservedObject var model: DiskMapModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Remove \(model.marks.count) item\(model.marks.count == 1 ? "" : "s")?")
+                    .font(.system(size: 17, weight: .semibold))
+                Text("\(StorageFormat.bytes(model.marks.bytes)) in \(model.marks.files.formatted()) files. Moved to the Trash, they can be put back until it is emptied.")
+                    .font(.system(size: 11)).foregroundColor(.secondary)
+            }.padding(20)
+            Divider()
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(model.marks.nodes.enumerated()), id: \.offset) { _, node in row(node) }
+                }
+            }.frame(minHeight: 160, maxHeight: 380)
+            Divider()
+            HStack {
+                Button("Delete Permanently…", role: .destructive, action: confirmPermanent)
+                    .help("Removes them for good, without the Trash")
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Move to Trash") { model.removeMarked(permanently: false) }
+                    .keyboardShortcut(.defaultAction).disabled(model.marks.isEmpty)
+            }.padding(16)
+        }.frame(width: 560)
+    }
+
+    private func row(_ node: DiskNode) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                model.unmark(node)
+                if model.marks.isEmpty { dismiss() }
+            } label: {
+                Image(systemName: "minus.circle").foregroundColor(.secondary)
+            }.buttonStyle(.plain).help("Unmark")
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(node.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                    if let reclaim = node.reclaim {
+                        Text(reclaim.label).font(.system(size: 9, weight: .medium)).padding(.horizontal, 5)
+                            .padding(.vertical, 1).background(Capsule().fill(Color(nsColor: DiskMapPalette.amber).opacity(0.25)))
+                    }
+                }
+                Text(ProcessGrouping.abbreviate(node.path, home: model.policy.home)).font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
+                if let warning = model.policy.warning(for: node) {
+                    Label(warning, systemImage: "exclamationmark.triangle").font(.system(size: 10))
+                        .foregroundColor(Color(nsColor: DiskMapPalette.danger))
+                }
+            }
+            Spacer(minLength: 8)
+            Text(StorageFormat.bytes(node.size)).font(.system(size: 12, design: .monospaced))
+        }.padding(.horizontal, 20).padding(.vertical, 9)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+    }
+
+    private func confirmPermanent() {
+        let alert = NSAlert()
+        alert.messageText = "Delete \(model.marks.count) item\(model.marks.count == 1 ? "" : "s") permanently?"
+        alert.informativeText = "\(StorageFormat.bytes(model.marks.bytes)) in \(model.marks.files.formatted()) files are removed for good and cannot be put back: \(model.marks.nodes.prefix(4).map(\.title).joined(separator: ", "))\(model.marks.count > 4 ? ", …" : "")."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Delete Permanently")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn { model.removeMarked(permanently: true) }
     }
 }

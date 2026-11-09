@@ -1,3 +1,9 @@
+## 0.2.9 — 2026-11-09
+
+- The Disk Map is a wide panel beside Performance instead of a separate window: part of Kolom, with the strip making room for it. × or Escape at the top closes it; closing Performance closes both.
+- **Mark and remove.** Space, X or ⌘-click marks (right-click too); marked tiles and their contents turn red. Marks never count space twice: a folder absorbs marks inside it, and nothing inside a marked folder can be marked alone. The panel shows what is marked and the free space after removing it; **Review…** (C) lists each mark with what to know (synced, code, apps), then **Move to Trash** (default) or **Delete Permanently…** (asks again). Paths are re-checked just before removal; the map updates at once and says how much space came back. Your home, its standard folders, the mapped folder and macOS are never offered; refusals say why.
+- Click targets: the rail's CPU/MEM/NET/GPU block, its column arrows and the commands panel's collapse button now take clicks anywhere in their area, not only on their text or glyph.
+
 ## 0.2.8 — 2026-11-09
 
 - **Disk Map**, replacing 0.2.7's folder list: a treemap of a disk or folder in its own window, adopting DiskTree's design (MIT, credited). Squarified tiles three levels deep, coloured by kind of data, with space that can be had back hatched in amber; go in and up with an animated zoom; breadcrumbs with sibling menus; keyboard (Enter, Backspace, arrows, Tab, ⌘[ ⌘], ⌘R); a panel with the selection, **Worth a look** (the largest reclaimable folders, such as caches, build output and logs) and the disk. Open it from the Storage panel (a disk, or **Choose a folder…**) or **Disk Map…** in the menus.
