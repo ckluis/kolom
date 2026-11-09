@@ -19,7 +19,7 @@ Use [GitHub private vulnerability reporting](https://github.com/ckluis/kolom/sec
 
 ## Performance dashboard
 
-While it is open, the dashboard reads process counters through libproc and the IOKit registry, and runs two Apple tools as your user: `/usr/bin/nettop` (one-second runs, byte counts per process, never contents) and `/bin/ps` (for processes libproc may not read). Nothing runs while it is closed, and nothing is sent anywhere. Right-clicking a row can quit an app or send SIGTERM or SIGKILL to processes; only your own processes outside macOS's folders are offered, never Kolom's own, and every action asks first. Agents and `kolomctl` cannot stop processes.
+While it is open, the dashboard reads process counters through libproc and the IOKit registry, and runs two Apple tools as your user: `/usr/bin/nettop` (one-second runs, byte counts per process, never contents) and `/bin/ps` (for processes libproc may not read). Nothing runs while it is closed, and nothing is sent anywhere. Right-clicking a row can quit an app or send SIGTERM or SIGKILL to processes; only your own processes outside macOS's folders are offered, never Kolom's own, and every action asks first. Agents and `kolomctl` cannot stop processes. The storage view scans a disk only when you open it: it reads folder entries and sizes (never file contents) on that disk alone, stops when you leave it, and keeps nothing on disk. macOS's own privacy prompts and Full Disk Access decide which protected folders it may see.
 
 ## Ask Kolom
 
