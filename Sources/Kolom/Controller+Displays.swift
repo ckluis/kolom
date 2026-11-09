@@ -40,12 +40,26 @@ extension KolomController {
         interacting = false
         suspension = reason
         flushLayout()
-        status = "Waiting while the Mac is asleep, locked or switched to another user"
+        record("suspend", ["reason": reason.rawValue])
+        status =
+            reason == .otherSpace
+            ? "On another Space · Kolom keeps this layout and picks it up when you return"
+            : "Waiting while the Mac is asleep, locked or switched to another user"
         layoutChanged?()
         writeLiveState()
     }
     func resume() {
         guard suspension != nil else { return }
+        // Woken or unlocked on another Space: wait there, without showing the rails first.
+        if suspension != .otherSpace, judgeSpaces() == false {
+            suspension = .otherSpace
+            record("suspend", ["reason": SuspensionReason.otherSpace.rawValue, "after": "wake"])
+            status = "On another Space · Kolom keeps this layout and picks it up when you return"
+            layoutChanged?()
+            writeLiveState()
+            return
+        }
+        record("resume", ["from": suspension!.rawValue])
         suspension = nil
         expected = [:]
         // Windows can take a while to be listed again after wake or unlock.
@@ -68,6 +82,19 @@ extension KolomController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.rescueDroppedOnThisSpace() }
             return
         }
+        // Knowing which Space is shown, no guessing: wait on another, resume on return.
+        if let onManaged = judgeSpaces() {
+            if Set(realDisplays().map(\.id)) != Set(displays.map(\.id)) { screensChanged() }
+            if !onManaged {
+                // Asleep or locked already: keep that; resume judges the Space again.
+                if suspension == nil { suspend(.otherSpace) }
+            } else if suspension == .otherSpace {
+                resume()
+            } else if managing {
+                scheduleRefresh()
+            }
+            return
+        }
         // Do not push the current Space's windows into a different Space.
         if Set(realDisplays().map(\.id)) != Set(displays.map(\.id)) { screensChanged() }
         guard managing || spaceChangeDeferred else { return }
@@ -83,6 +110,23 @@ extension KolomController {
         if !explained, spaceChangeUnexplainedAt == nil { spaceChangeUnexplainedAt = Date() }
         scheduleSpaceRecheck()
     }
+    /// Compares the Spaces shown with the managed ones (adopting displays and Spaces
+    /// that appeared). Returns nil when macOS does not say (Kolom then falls back to
+    /// pausing), true on the managed Spaces, false elsewhere. Acting is the caller's.
+    @discardableResult func judgeSpaces() -> Bool? {
+        guard enabled, !spaces.managed.isEmpty, let shown = Spaces.current() else { return nil }
+        let decision = spaces.judge(
+            shown.mapValues { .init(current: $0.current, all: $0.all) }, displays: realDisplays().map(\.id))
+        record(
+            "space",
+            [
+                "shown": shown.mapValues { Int($0.current) }, "managed": spaces.managed.mapValues { Int($0) },
+                "away": { if case .away(let ids) = decision { return ids } else { return [String]() } }(),
+            ])
+        if case .away = decision { return false }
+        return true
+    }
+
     /// Displays come up in stages (DisplayLink adapters take seconds); every stage
     /// extends the window in which Space changes are not taken as the user's.
     func noteDisplayReconfiguration() {
@@ -113,7 +157,10 @@ extension KolomController {
         }
         // Suspended (asleep, locked): keep what is applied; resume reconciles.
         guard suspension == nil else { return }
-        if arrangement.reconcile() { noteDisplayReconfiguration() }
+        if arrangement.reconcile() {
+            record("staircase", ["applied": true])
+            noteDisplayReconfiguration()
+        }
         let maps = arrangement.pointerMaps
         pointerRouter.update(technical: maps.technical, desk: maps.desk)
         writeLiveState()
@@ -123,7 +170,9 @@ extension KolomController {
         arrangementTask?.cancel()
         arrangementTask = nil
         pointerRouter.update(technical: [:], desk: [:])
-        return arrangement.restore()
+        let changed = arrangement.restore()
+        if changed { record("staircase", ["restored": true]) }
+        return changed
     }
     /// A window frame in desk coordinates, for recovery records.
     func deskFrame(_ frame: CGRect) -> CGRect {
@@ -251,6 +300,7 @@ extension KolomController {
     }
     func screensChanged() {
         guard enabled else { return }
+        record("screens", ["displays": realDisplays().map { "\($0.name) \(Int($0.frame.width))x\(Int($0.frame.height))" }])
         animation?.invalidate()
         animation = nil
         noteDisplayReconfiguration()

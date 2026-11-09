@@ -235,6 +235,13 @@ final class KolomController: ObservableObject {
     /// transfers and display changes can post one). Refresh waits until it has
     /// been re-checked.
     var spaceChangeDeferred = false
+    /// The Space each display is managed on (from SkyLight, when macOS provides it).
+    var spaces = SpaceTracker()
+    /// Display and Space events with millisecond times, for diagnosing flicker.
+    var trace: [[String: Any]] = []
+    var traceWrite: DispatchWorkItem?
+    /// Until then, refresh and apply are traced too (a display or Space event is recent).
+    var traceDetailUntil = Date.distantPast
     /// Records the app dropped because their window was on another Space. When
     /// the user arrives on that Space while Kolom is paused, unreachable ones
     /// are rescued.
@@ -296,6 +303,13 @@ final class KolomController: ObservableObject {
         let wasUnresponsive = bridge.unresponsivePIDs
         let discovered = bridge.discover(retaining: retained, adoptMinimized: true).filter {
             !excludedBundles.contains($0.bundleID)
+        }
+        if Date() < traceDetailUntil {
+            // Windows not where Kolom last put them: macOS (or the user) moved them.
+            let moved = discovered.filter { w in
+                expected[w.id].map { abs($0.minX - w.frame.minX) > 2 || abs($0.minY - w.frame.minY) > 2 } ?? false
+            }.count
+            record("refresh", ["listed": discovered.count, "movedSinceKolom": moved])
         }
         // An app that answers again missed the moves skipped while it was busy.
         let recovered = wasUnresponsive.subtracting(bridge.unresponsivePIDs)
@@ -522,6 +536,13 @@ final class KolomController: ObservableObject {
         writeLiveState()
     }
     func apply(reflow: Bool = true) {
+        var traceWrites = 0
+        let traceStart = Date()
+        defer {
+            if traceWrites > 0, Date() < traceDetailUntil {
+                record("apply", ["writes": traceWrites, "ms": Int(Date().timeIntervalSince(traceStart) * 1000)])
+            }
+        }
         // Suspended: no moves. Panels still refresh (Performance opens and closes);
         // syncPanels never calls back into apply or focus.
         if suspension != nil {
@@ -582,6 +603,7 @@ final class KolomController: ObservableObject {
                 // minimum size: AX geometry updates in many apps are asynchronous.
                 if expected[id] != physical || w.minimized {
                     let resize = expected[id]?.size != physical.size
+                    traceWrites += 1
                     if bridge.setFrame(w, physical, resize: resize) {
                         expected[id] = physical
                         geometryFeedback.recordWrite(id, frame: physical, time: Date().timeIntervalSinceReferenceDate)
@@ -611,9 +633,14 @@ private func displayReconfigured(
 ) {
     guard let context else { return }
     let controller = Unmanaged<KolomController>.fromOpaque(context).takeUnretainedValue()
+    let raw = flags.rawValue
     if Thread.isMainThread {
+        controller.recordReconfiguration(display, raw)
         controller.noteDisplayReconfiguration()
     } else {
-        DispatchQueue.main.async { controller.noteDisplayReconfiguration() }
+        DispatchQueue.main.async {
+            controller.recordReconfiguration(display, raw)
+            controller.noteDisplayReconfiguration()
+        }
     }
 }
