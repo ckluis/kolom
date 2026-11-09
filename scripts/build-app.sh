@@ -2,8 +2,7 @@
 set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 cd "$PROJECT_DIR"
-export CLANG_MODULE_CACHE_PATH="$PROJECT_DIR/.build/clang-cache"
-export SWIFTPM_MODULECACHE_OVERRIDE="$PROJECT_DIR/.build/swift-cache"
+source "$PROJECT_DIR/scripts/module-cache.sh"
 BUILD_ARGS=(--disable-sandbox --cache-path "$PROJECT_DIR/.build/package-cache" --config-path "$PROJECT_DIR/.build/package-config" --security-path "$PROJECT_DIR/.build/package-security")
 # Ask Kolom uses Apple's on-device model when the SDK has it (macOS 26). Weak
 # linking lets the same app launch on older macOS; older SDKs build without it.
@@ -35,7 +34,20 @@ fi
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 [[ "$SIGN_IDENTITY" == "-" ]] && print "Signing ad hoc: window-control permission must be granted again after this build."
 codesign --force --sign "$SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/kolomctl"
-cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
+# VERSION is the release; the commit count and hash tell every build apart.
+VERSION="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { print -u2 "VERSION must be x.y.z, not '$VERSION'"; exit 1 }
+BUILD_NUMBER=0 COMMIT=""
+if git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  # Continues from 26, the last hand-set build: LaunchServices prefers the highest
+  # build among copies of the app, so numbers must never go back below it.
+  BUILD_NUMBER="$(( $(git -C "$PROJECT_DIR" rev-list --count HEAD) + 26 ))"
+  COMMIT="$(git -C "$PROJECT_DIR" rev-parse --short HEAD)"
+  if [[ -n "$(git -C "$PROJECT_DIR" status --porcelain --untracked-files=no)" ]]; then COMMIT="$COMMIT-dirty"; fi
+fi
+COMMIT_KEY=""
+if [[ -n "$COMMIT" ]]; then COMMIT_KEY="<key>KolomCommit</key><string>$COMMIT</string>"; fi
+cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -45,8 +57,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Kolom</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>Kolom</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
-<key>CFBundleVersion</key><string>26</string>
+<key>CFBundleShortVersionString</key><string>$VERSION</string>
+<key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+$COMMIT_KEY
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
@@ -56,4 +69,4 @@ PLIST
 swift "$PROJECT_DIR/scripts/make-icon.swift" "$PROJECT_DIR/build/Kolom.iconset"
 iconutil -c icns "$PROJECT_DIR/build/Kolom.iconset" -o "$APP_DIR/Contents/Resources/Kolom.icns"
 codesign --force --sign "$SIGN_IDENTITY" --identifier io.github.ckluis.kolom "$APP_DIR"
-print "Built $APP_DIR"
+print "Built $APP_DIR · Kolom $VERSION (build $BUILD_NUMBER${COMMIT:+, $COMMIT})"

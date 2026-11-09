@@ -8,6 +8,21 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      # Every merged change ships as its own version, so builds can be told apart.
+      - name: VERSION is raised above the base branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          base="$(git show FETCH_HEAD:VERSION 2>/dev/null | tr -d '[:space:]' || true)"
+          base="${base:-0.2.0}"
+          head="$(tr -d '[:space:]' < VERSION)"
+          highest="$(printf '%s\n%s\n' "$base" "$head" | sort -V | tail -1)"
+          if [[ "$head" == "$base" || "$highest" != "$head" ]]; then
+            echo "::error file=VERSION::Raise VERSION above $BASE_REF's $base (this branch has $head)"
+            exit 1
+          fi
       - name: Core checks
         run: ./scripts/test.sh
       - name: Build the app (ad hoc signed)
