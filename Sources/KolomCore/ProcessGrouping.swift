@@ -26,10 +26,15 @@ public struct ProcessSample {
     public var memory: Double?
     /// Bytes per second sent and received; nil when network attribution is unavailable.
     public var network: Double?
+    /// Seconds since its terminal last saw input or output (the TTY's own timestamps);
+    /// nil without a terminal.
+    public var terminalIdle: Double?
+    /// Its working directory no longer exists (deleted after it started there).
+    public var directoryMissing = false
     public init(
         id: String, pid: Int32, parent: Int32, responsible: Int32?, name: String, path: String, directory: String?,
         system: Bool, user: Bool = true, label: String? = nil, cpu: Double?, gpu: Double?, memory: Double?,
-        network: Double? = nil
+        network: Double? = nil, terminalIdle: Double? = nil
     ) {
         self.id = id
         self.pid = pid
@@ -45,6 +50,7 @@ public struct ProcessSample {
         self.gpu = gpu
         self.memory = memory
         self.network = network
+        self.terminalIdle = terminalIdle
     }
 
     /// Executables in these folders belong to macOS (Safari's and WebKit's live under
@@ -95,7 +101,7 @@ public struct ProcessOwnerApp {
 /// A row of the performance table: an app, a session inside it, a group of alike
 /// processes, or one process. Totals cover every process beneath it.
 public struct ProcessNode: Identifiable {
-    public enum Kind: Equatable { case app, system, notable, extensions, session, leftover, bucket, process }
+    public enum Kind: Equatable { case app, system, notable, extensions, session, leftover, idle, bucket, process }
     public var id: String
     public var kind: Kind
     public var title: String
@@ -112,6 +118,8 @@ public struct ProcessNode: Identifiable {
     public var memory: Double?
     public var network: Double?
     public var children: [ProcessNode]
+    /// Seconds since any terminal beneath last saw input or output; nil without one.
+    public var idle: Double?
     /// The processes beneath that may be stopped: the user's own, outside macOS. A
     /// terminal's root-owned login wrapper is left out; it ends with its shell.
     public var pids: [Int32]
@@ -252,6 +260,9 @@ public enum ProcessGrouping {
         }
         let appByID = Dictionary(apps.filter(\.owner).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var nodes: [ProcessNode] = []
+        // macOS's own: background services, its notable services and the widgets
+        // and extensions it keeps loaded, gathered under one row.
+        var macOS: [ProcessNode] = []
         for (owner, group) in members {
             switch owner {
             case .app(let id):
@@ -274,12 +285,15 @@ public enum ProcessGrouping {
                 node.stoppable = byPID[app.pid]?.user ?? false
                 nodes.append(node)
             case .system:
-                let entries = buckets(group.map { leaf($0, groupID: systemID, depth: 0, home: home) }, groupID: systemID)
+                let servicesID = systemID + "/services"
+                let entries = buckets(
+                    group.map { leaf($0, groupID: servicesID, depth: 0, home: home) }, groupID: servicesID)
                 var node = total(
-                    id: systemID, kind: .system, title: "macOS", detail: "\(group.count) background services",
-                    appID: nil, pid: nil, children: entries, processes: group, home: home)
+                    id: servicesID, kind: .bucket, title: "Background services",
+                    detail: "\(group.count) processes", appID: nil, pid: nil, children: entries, processes: group,
+                    home: home)
                 node.stoppable = false
-                nodes.append(node)
+                macOS.append(node)
             case .notable(let id):
                 let notable = notables.values.first { $0.id == id }!
                 if group.count == 1 {
@@ -288,10 +302,10 @@ public enum ProcessGrouping {
                     node.kind = .notable
                     node.title = notable.title
                     node.detail = "PID \(group[0].pid) · " + notable.detail
-                    nodes.append(node)
+                    macOS.append(node)
                 } else {
                     let entries = buckets(group.map { leaf($0, groupID: "notable:" + id, depth: 0, home: home) }, groupID: "notable:" + id)
-                    nodes.append(
+                    macOS.append(
                         total(
                             id: "notable:" + id, kind: .notable, title: notable.title,
                             detail: "\(group.count) processes · " + notable.detail, appID: nil, pid: nil,
@@ -313,7 +327,7 @@ public enum ProcessGrouping {
                             children: buckets(members.map { leaf($0, groupID: partID, depth: 0, home: home) }, groupID: partID),
                             processes: members, home: home))
                 }
-                nodes.append(
+                macOS.append(
                     total(
                         id: extensionsID, kind: .extensions, title: "Widgets & extensions",
                         detail:
@@ -335,7 +349,29 @@ public enum ProcessGrouping {
                 }
             }
         }
+        if !macOS.isEmpty {
+            let count = macOS.reduce(0) { $0 + $1.count }
+            let busiest = macOS.max { ($0.cpu ?? 0) < ($1.cpu ?? 0) }
+            var node = ProcessNode(
+                id: systemID, kind: .system, title: "macOS",
+                detail: "\(count) processes" + (busiest.map { " · busiest: \($0.title)" } ?? ""), count: count,
+                cpu: sum(macOS.map(\.cpu)), gpu: sum(macOS.map(\.gpu)), memory: sum(macOS.map(\.memory)),
+                network: sum(macOS.map(\.network)), children: macOS, pids: macOS.flatMap(\.pids), stoppable: false,
+                searchText: "macos " + macOS.map(\.searchText).joined(separator: " "))
+            node.idle = nil
+            nodes.append(node)
+        }
         return nodes
+    }
+
+    /// Sessions whose terminals have been untouched this long are gathered as idle.
+    public static let idleAfter: Double = 24 * 60 * 60
+
+    /// "5 h", "3 d": how long a terminal has been untouched.
+    public static func idleText(_ seconds: Double) -> String {
+        if seconds < 3600 { return "\(max(1, Int(seconds / 60))) min" }
+        if seconds < 86400 { return "\(Int(seconds / 3600)) h" }
+        return "\(Int(seconds / 86400)) d"
     }
 
     /// The second level: the app's own process, then each subtree it started (a
@@ -359,6 +395,8 @@ public enum ProcessGrouping {
         var singles: [ProcessNode] = []
         var leftovers: [ProcessNode] = []
         var leftoverProcesses: [ProcessSample] = []
+        var idleNodes: [ProcessNode] = []
+        var idleProcesses: [ProcessSample] = []
         for root in roots {
             var subtree: [(ProcessSample, Int)] = []
             var seen: Set<Int32> = []
@@ -368,16 +406,23 @@ public enum ProcessGrouping {
                 for child in (children[sample.pid] ?? []).sorted(by: { $0.pid < $1.pid }) { walk(child, depth + 1) }
             }
             walk(root, 0)
-            let node =
+            var node =
                 subtree.count == 1
                 ? leaf(root, groupID: groupID, depth: 0, home: home)
                 : session(subtree, groupID: groupID, home: home)
+            // The most recent activity of any terminal in the subtree.
+            let idle = subtree.compactMap(\.0.terminalIdle).min()
+            node.idle = idle
+            if let idle, idle >= 3600 { node.detail += " · idle \(idleText(idle))" }
             // Started by this app but now parented by launchd: its terminal session closed
             // and it kept running (a dev server left behind). XPC services also run under
             // launchd, but from inside a bundle.
             if root.parent == 1, root.isLoose {
                 leftovers.append(node)
                 leftoverProcesses += subtree.map(\.0)
+            } else if let idle, idle >= idleAfter {
+                idleNodes.append(node)
+                idleProcesses += subtree.map(\.0)
             } else if subtree.count == 1 {
                 singles.append(node)
             } else {
@@ -393,6 +438,22 @@ public enum ProcessGrouping {
                         "\(count) process\(count == 1 ? "" : "es") · the terminal session that started \(leftovers.count == 1 ? "it" : "them") has closed",
                     appID: nil, pid: nil, children: leftovers, processes: leftoverProcesses, home: home))
         }
+        if !idleNodes.isEmpty {
+            let spans = idleNodes.compactMap(\.idle)
+            let span =
+                spans.isEmpty
+                ? ""
+                : spans.min() == spans.max()
+                    ? idleText(spans.min()!) : "\(idleText(spans.min()!))–\(idleText(spans.max()!))"
+            var node = total(
+                id: "\(groupID)/idle", kind: .idle, title: "Idle for more than a day",
+                detail:
+                    "\(idleNodes.count) session\(idleNodes.count == 1 ? "" : "s") · terminals untouched \(span)",
+                appID: nil, pid: nil, children: idleNodes.sorted { ($0.idle ?? 0) > ($1.idle ?? 0) },
+                processes: idleProcesses, home: home)
+            node.idle = spans.min()
+            entries.append(node)
+        }
         return entries + buckets(singles, groupID: groupID)
     }
 
@@ -403,9 +464,12 @@ public enum ProcessGrouping {
         let others = subtree.map(\.0).filter { $0.pid != head.pid && $0.name != "login" }
         var names: [String] = []
         for sample in others where !names.contains(displayName(sample)) { names.append(displayName(sample)) }
-        let folder = head.directory.map { abbreviate($0, home: home) }
+        let folder = head.directory.map { abbreviate($0, home: home) + (head.directoryMissing ? " (folder deleted)" : "") }
         let name = displayName(head)
-        let title = folder.flatMap { $0 == "~" || $0 == "/" ? nil : "\(name) · \(lastComponent($0))" } ?? name
+        let title =
+            head.directory.map { abbreviate($0, home: home) }.flatMap {
+                $0 == "~" || $0 == "/" ? nil : "\(name) · \(lastComponent($0))"
+            } ?? name
         var detail = [folder, "\(subtree.count) processes"].compactMap { $0 }.joined(separator: " · ")
         if !names.isEmpty {
             detail += " · " + names.prefix(3).joined(separator: ", ") + (names.count > 3 ? " +\(names.count - 3)" : "")
@@ -463,7 +527,7 @@ public enum ProcessGrouping {
     static func leaf(_ sample: ProcessSample, groupID: String, depth: Int, home: String) -> ProcessNode {
         var detail = ["PID \(sample.pid)"]
         if let folder = sample.directory.flatMap({ $0 == "/" ? nil : abbreviate($0, home: home) }) {
-            detail.append(folder)
+            detail.append(sample.directoryMissing ? folder + " (folder deleted)" : folder)
         }
         let title = displayName(sample)
         if sample.label != nil, title != sample.name { detail.append(sample.name) }
@@ -502,6 +566,12 @@ public enum ProcessGrouping {
     }
 
     public static func abbreviate(_ path: String, home: String) -> String {
+        // The per-user temporary folder, /private/var/folders/xx/…/T/, as tmp/.
+        if path.hasPrefix("/private/var/folders/") || path.hasPrefix("/var/folders/"),
+            let range = path.range(of: "/T/")
+        {
+            return "tmp/" + path[range.upperBound...]
+        }
         guard !home.isEmpty, home != "/" else { return path }
         if path == home { return "~" }
         return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path

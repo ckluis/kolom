@@ -18,6 +18,9 @@ final class DesktopAppearance {
     var applied: [String: String] = [:]
     static let fallbackWallpaper = URL(fileURLWithPath: "/System/Library/CoreServices/DefaultDesktop.heic")
     init() {
+        // A smoke run shares the real record; restoring from it would undo the
+        // theme of the Kolom that is actually running (it did, in 0.2.11).
+        guard !SmokeMode.active else { return }
         lastRestored =
             (try? Data(contentsOf: lastRecord)).flatMap {
                 try? JSONDecoder().decode([String: Original].self, from: $0)
@@ -62,6 +65,7 @@ final class DesktopAppearance {
         return nil
     }
     func apply(_ theme: String) {
+        guard !SmokeMode.active else { return }
         if theme == "Wallpaper" {
             restore()
             return
@@ -121,6 +125,7 @@ final class DesktopAppearance {
         }
     }
     func restore() {
+        guard !SmokeMode.active else { return }
         for screen in NSScreen.screens {
             let id = key(screen)
             // Only undo Kolom's own theme. A screen showing a real wallpaper is on

@@ -1199,7 +1199,10 @@ do {
     ]
     let tree = ProcessGrouping.tree(samples, apps: apps, home: home)
     let top = Dictionary(uniqueKeysWithValues: tree.map { ($0.title, $0) })
-    XCTAssertEqual(Set(top.keys), ["cmux", "Safari", "WindowServer", "Spotlight indexing", "postgres", "lonely"])
+    XCTAssertEqual(Set(top.keys), ["cmux", "Safari", "macOS", "postgres", "lonely"])
+    // macOS's own parts sit under one row.
+    let mac = Dictionary(uniqueKeysWithValues: top["macOS"]!.children.map { ($0.title, $0) })
+    XCTAssertEqual(Set(mac.keys), ["WindowServer", "Spotlight indexing"])
 
     let cmux = top["cmux"]!
     XCTAssertEqual(cmux.count, 8)  // login wrappers belong to the terminal, not to macOS
@@ -1226,8 +1229,11 @@ do {
     XCTAssertTrue(safari.children[1].detail.contains("does not say which tab"))
     XCTAssertTrue(safari.matches("webcontent"))
 
-    XCTAssertEqual(top["WindowServer"]!.kind, .notable)
-    XCTAssertFalse(top["WindowServer"]!.stoppable)
+    XCTAssertEqual(mac["WindowServer"]!.kind, .notable)
+    XCTAssertFalse(mac["WindowServer"]!.stoppable)
+    XCTAssertFalse(top["macOS"]!.stoppable)
+    XCTAssertEqual(top["macOS"]!.count, 2)
+    XCTAssertTrue(top["macOS"]!.detail.contains("busiest"))
     XCTAssertEqual(top["postgres"]!.count, 2)  // workers join the process responsible for them
     XCTAssertEqual(top["lonely"]!.kind, .process)
     XCTAssertTrue(top["lonely"]!.children.isEmpty)
@@ -1284,10 +1290,10 @@ do {
         extra.append(rootOwned)
         let smarter = ProcessGrouping.tree(extra, apps: registered, home: home)
         let rows = Dictionary(uniqueKeysWithValues: smarter.map { ($0.title, $0) })
+        XCTAssertEqual(Set(rows.keys), ["cmux", "Safari", "macOS", "postgres", "lonely", "Tool", "rootd"])
+        let system = Dictionary(uniqueKeysWithValues: rows["macOS"]!.children.map { ($0.title, $0) })
         XCTAssertEqual(
-            Set(rows.keys),
-            ["cmux", "Safari", "macOS", "postgres", "lonely", "Widgets & extensions", "Tool", "rootd", "WindowServer",
-             "Spotlight indexing"])
+            Set(system.keys), ["WindowServer", "Spotlight indexing", "Widgets & extensions", "Background services"])
         let terminal = rows["cmux"]!
         XCTAssertEqual(terminal.count, 11)
         XCTAssertTrue(terminal.children.contains { $0.title == "AutoFill (cmux)" && $0.kind == .process })
@@ -1298,13 +1304,14 @@ do {
         XCTAssertEqual(left.children.map(\.title), ["npm run dev · app"])
         XCTAssertEqual(left.children[0].children.map(\.title), ["npm run dev", "esbuild"])
         XCTAssertTrue(left.children[0].children[0].detail.contains("node"))
-        XCTAssertEqual(rows["Widgets & extensions"]!.count, 1)
-        XCTAssertEqual(rows["Widgets & extensions"]!.children.map(\.title), ["Widgets"])
+        XCTAssertEqual(system["Widgets & extensions"]!.count, 1)
+        XCTAssertEqual(system["Widgets & extensions"]!.children.map(\.title), ["Widgets"])
         // The usual suspects of a slow Mac leave the macOS row for their own.
-        XCTAssertEqual(rows["WindowServer"]!.kind, .notable)
-        XCTAssertTrue(rows["WindowServer"]!.detail.contains("DisplayLink"))
-        XCTAssertEqual(rows["Spotlight indexing"]!.count, 1)
-        XCTAssertEqual(rows["macOS"]!.count, 1)  // WallpaperAgent
+        XCTAssertEqual(system["WindowServer"]!.kind, .notable)
+        XCTAssertTrue(system["WindowServer"]!.detail.contains("DisplayLink"))
+        XCTAssertEqual(system["Spotlight indexing"]!.count, 1)
+        XCTAssertEqual(system["Background services"]!.count, 1)  // WallpaperAgent
+        XCTAssertEqual(rows["macOS"]!.count, 4)
         XCTAssertEqual(rows["Tool"]!.kind, .app)
         XCTAssertEqual(rows["Tool"]!.appID, "tool")
         // Stopping is offered only for the user's own processes outside macOS.
@@ -1627,4 +1634,50 @@ do {
     XCTAssertFalse(empty.restore("b", to: lone))
     XCTAssertEqual(empty.windowIDs, ["x", "b"])
     print("PASS: a window that drops out and returns goes back into its stack at its old place and width")
+}
+
+// Terminal sessions untouched for more than a day are gathered as idle.
+do {
+    func shell(_ pid: Int32, parent: Int32, idle: Double?, name: String = "zsh") -> ProcessSample {
+        ProcessSample(
+            id: "\(pid):1", pid: pid, parent: parent, responsible: 100, name: name, path: "/bin/zsh",
+            directory: "/Users/me", system: false, cpu: 0, gpu: 0, memory: 3_000_000, terminalIdle: idle)
+    }
+    let apps = [ProcessOwnerApp(pid: 100, path: "/Applications/cmux.app", id: "com.cmux", name: "cmux")]
+    let samples = [
+        ProcessSample(
+            id: "100:1", pid: 100, parent: 1, responsible: 100, name: "cmux",
+            path: "/Applications/cmux.app/Contents/MacOS/cmux", directory: nil, system: false, cpu: 0.1, gpu: 0,
+            memory: 1e9),
+        shell(201, parent: 100, idle: 30),  // in use
+        shell(202, parent: 100, idle: 9 * 86400),  // a forgotten tab
+        shell(203, parent: 100, idle: 2 * 86400),
+        shell(204, parent: 100, idle: 7 * 3600),  // quiet, not idle yet
+        shell(205, parent: 100, idle: 3 * 86400),  // a shell running a quiet program
+        shell(206, parent: 205, idle: 3 * 86400, name: "node"),
+    ]
+    let cmux = ProcessGrouping.tree(samples, apps: apps, home: "/Users/me").first { $0.title == "cmux" }!
+    let idle = cmux.children.first { $0.kind == .idle }!
+    XCTAssertEqual(idle.title, "Idle for more than a day")
+    XCTAssertEqual(idle.children.count, 3)
+    XCTAssertEqual(idle.count, 4)  // 202, 203, and 205 with its node
+    XCTAssertEqual(idle.detail, "3 sessions · terminals untouched 2 d–9 d")
+    XCTAssertEqual(idle.children.first!.idle, 9 * 86400)  // longest idle first
+    XCTAssertEqual(Set(idle.pids), [202, 203, 205, 206])
+    let quiet = cmux.children.flatMap { [$0] + $0.children }.first { $0.pid == 204 }!
+    XCTAssertTrue(quiet.detail.contains("idle 7 h"))
+    XCTAssertFalse(cmux.children.contains { $0.kind == .idle && $0.pids.contains(201) })
+    XCTAssertEqual(
+        ProcessGrouping.abbreviate("/private/var/folders/_6/44y5/T/baton-v76-E1-repo", home: "/Users/me"),
+        "tmp/baton-v76-E1-repo")
+    var gone = shell(207, parent: 100, idle: 4 * 86400)
+    gone.directory = "/private/var/folders/_6/x/T/old-repo"
+    gone.directoryMissing = true
+    let withGone = ProcessGrouping.tree(samples + [gone], apps: apps, home: "/Users/me").first { $0.title == "cmux" }!
+    let goneRow = withGone.children.first { $0.kind == .idle }!.children.first { $0.pid == 207 }!
+    XCTAssertTrue(goneRow.detail.contains("tmp/old-repo (folder deleted)"))
+    XCTAssertEqual(ProcessGrouping.idleText(90), "1 min")
+    XCTAssertEqual(ProcessGrouping.idleText(5 * 3600), "5 h")
+    XCTAssertEqual(ProcessGrouping.idleText(21 * 86400), "21 d")
+    print("PASS: terminal sessions untouched for more than a day are gathered as idle, longest first")
 }

@@ -24,8 +24,8 @@ struct PerformanceHelp: View {
                             "**Apps** hold every process macOS holds them responsible for, as Activity Monitor groups them: a terminal’s shells and what they run, a browser’s tabs, AutoFill.",
                             "Unfold an app for its **sessions**, named by shell and folder (`zsh · kolom`), then a session for its **process tree**, with PIDs and folders.",
                             "**Left running**: programs whose terminal session has closed while they kept going, such as a forgotten dev server.",
-                            "**Widgets & extensions**: macOS keeps them loaded even while their apps are closed (Stocks, Podcasts, Quick Look thumbnails).",
-                            "**WindowServer, Spotlight indexing, Time Machine, Photo & media analysis** have rows of their own: the usual reasons a Mac feels slow. The rest of macOS shares one row.",
+                            "**Idle for more than a day**: terminal sessions whose terminal has seen no typing or output for a day or more (macOS stamps a terminal each time), longest first, with “folder deleted” when the folder a shell sat in is gone. Right-click to stop them; their tabs stay open, showing the session ended.",
+                            "**macOS** holds what macOS runs: WindowServer, Spotlight indexing, Time Machine, Photo & media analysis, Widgets & extensions (loaded even while their apps are closed) and background services. When one of them is the busiest thing on the Mac, the line above the table names it.",
                             "**Web Content** processes are Safari’s tabs, frames and extensions; macOS does not say which tab each one is.",
                         ])
                     section(

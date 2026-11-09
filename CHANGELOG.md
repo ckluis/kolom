@@ -1,3 +1,10 @@
+## 0.2.12 — 2026-11-09
+
+- **Idle sessions.** Performance reads when each terminal last saw typing or output (macOS stamps the terminal device). Sessions say "idle 7 h"; those idle for more than a day are gathered under **Idle for more than a day**, longest first, with "(folder deleted)" when the shell's folder is gone and temporary folders shown as `tmp/`. On the test Mac, 18 of 32 cmux shells had been untouched for 3–21 days. Right-click stops them: shells get SIGHUP (they ignore SIGTERM), other programs SIGTERM.
+- **One macOS row.** WindowServer, Spotlight indexing, Time Machine, Photo & media analysis, Widgets & extensions and background services sit beneath **macOS**, which names its busiest part; when macOS is on top, the line above the table names that part ("WindowServer (macOS) uses the most CPU").
+- The Disk Map's legend no longer cuts off in a narrow panel: shorter labels, then swatches with tooltips.
+- The smoke test no longer touches the desktop. 0.2.11's smoke mode restored the running Kolom's themed wallpaper (its record lives in the real storage folder); the wallpaper code now does nothing in smoke mode, and a smoke step fails if any desktop picture changes. To bring a theme back after it: choose another theme under Appearance, then yours.
+
 ## 0.2.11 — 2026-11-09
 
 - **App smoke test.** `./scripts/smoke-test.sh` opens the built app in a smoke mode that never manages windows and uses its own storage, then drives Performance (grouped rows that include itself), the Disk Map (scan, kinds, mark, a refused mark, permanent removal, close and release) and the guide, renders each panel and must see it drawn, and quits on SIGTERM. About 5 s; safe beside a running Kolom. CI runs it after every build and keeps the report and renders.

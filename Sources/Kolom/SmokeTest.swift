@@ -32,6 +32,8 @@ final class SmokeTest {
     private var steps: [Step] = []
     private var results: [[String: Any]] = []
     private var tree: URL { output.appendingPathComponent("tree", isDirectory: true) }
+    /// Each display's desktop picture when the run began; a smoke run must leave them be.
+    private var desktops: [String: String] = [:]
 
     init(delegate: AppDelegate, output: URL) {
         self.delegate = delegate
@@ -41,6 +43,7 @@ final class SmokeTest {
     private var model: KolomController { delegate.model }
 
     func start() {
+        desktops = Self.desktopPictures()
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         makeTree()
         define()
@@ -135,7 +138,21 @@ final class SmokeTest {
                     self.model.toggleGuide()
                     return rendered
                 }),
+            Step(
+                name: "desktop pictures untouched", timeout: 2, action: {}, done: { true },
+                check: {
+                    let now = Self.desktopPictures()
+                    let changed = now.filter { self.desktops[$0.key] != $0.value }.map(\.key)
+                    return changed.isEmpty ? nil : "changed on \(changed.count) display(s)"
+                }),
         ]
+    }
+
+    static func desktopPictures() -> [String: String] {
+        Dictionary(
+            NSScreen.screens.map { screen in
+                (screen.localizedName + "\(screen.frame)", NSWorkspace.shared.desktopImageURL(for: screen)?.path ?? "")
+            }, uniquingKeysWith: { a, _ in a })
     }
 
     private func next(_ index: Int) {
