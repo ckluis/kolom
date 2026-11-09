@@ -137,7 +137,7 @@ A paired-phone view of a column, running over the user's own network (LAN or a V
 | Evidence | What it establishes |
 | --- | --- |
 | [0.1.24 hardening report](test-reports/0.1.24-hardening.md) | Two 0.1.23 crash reports and their cause, the wallpaper-record defect seen on this Mac, and what 0.1.24 changes. Unit checks only; no live test yet. |
-| [Core checks](../Tests/KolomCoreTests/main.swift) | Geometry, stacks, grids, history, recovery planning, startup, shared membership, and resource-counter/history cases. These do not prove compositor behavior or universal app compatibility. |
+| [Core checks](../Tests/KolomCoreTests/) | Geometry, stacks, grids, history, recovery planning, startup, shared membership, and resource-counter/history cases. These do not prove compositor behavior or universal app compatibility. |
 
 ## 8. Project, commands, and references
 

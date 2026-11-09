@@ -109,7 +109,7 @@ This is the first native implementation, not a production-tested replacement des
 ./scripts/test.sh
 ```
 
-The dependency-free runner (`Tests/KolomCoreTests/main.swift`) prints one PASS line per group (25 groups): layout scenarios, stacks, parking, display memory, recovery geometry, grids, startup, display staircase and pointer crossings, resource counters, window identities, agent-file safety, and 36,000 seeded randomized layout steps that check every live window stays in exactly one workspace. It works with Apple's command-line tools without a full Xcode installation. `python3 -I scripts/test-guidance.py` exercises the installed CLI/MCP adapter and refuses to run while local agent commands are on (it sends requests that must be refused), and `python3 -I scripts/live-check.py` checks a running session's invariants without changing anything.
+The dependency-free runner (`Tests/KolomCoreTests/`, one file per area, run in order from `main.swift`) prints one PASS line per group (35 groups): layout scenarios, stacks, parking, display memory, recovery geometry, grids, startup, display staircase and pointer crossings, resource counters, window identities, agent-file safety, and 36,000 seeded randomized layout steps that check every live window stays in exactly one workspace. It works with Apple's command-line tools without a full Xcode installation. `python3 -I scripts/test-guidance.py` exercises the installed CLI/MCP adapter and refuses to run while local agent commands are on (it sends requests that must be refused), and `python3 -I scripts/live-check.py` checks a running session's invariants without changing anything.
 
 Native integration needs Accessibility permission and manual testing with real applications. Suggested checks: two Safari windows with distinct tab sets; Notes above Terminal; a shared-width resize; icon stacking / insertion; focus via rail and shortcuts; display transfer; closing a managed window; pause and quit restoration; interrupted-session recovery; Space / display-change pause. Do not interpret passing geometry checks as evidence that every application's AX implementation behaves identically.
 
@@ -118,13 +118,16 @@ Native integration needs Accessibility permission and manual testing with real a
 - `Sources/KolomCore/Workspace.swift`: pure layout, grouping and viewport model.
 - `Sources/KolomCore/DisplayMemory.swift`: disconnected-display history and animation interpolation.
 - `Sources/Kolom/Accessibility.swift`: public AX / WindowServer discovery and move / resize / focus operations.
-- `Sources/Kolom/Controller.swift`: lifecycle, display ownership, persistence, reconciliation and restoration.
+- `Sources/Kolom/Controller.swift`: the controller's state, `refresh` (discovery and reconciliation) and `apply` (placement). Its other work is in extensions: `Controller+Session.swift` (enable, pause, recovery, access), `Controller+Displays.swift` (displays, Spaces, sleep, the staircase), `Controller+Commands.swift` (what the rail, shortcuts and agents ask), `Controller+Panels.swift` (room beside the rail), `Controller+Logs.swift` (layout, live state, pause and window-event logs).
 - `Sources/Kolom/Views.swift`: rail, optional command shelf, and settings.
 - `Sources/Kolom/Palette.swift`: keyboard placement interface.
 - `Sources/KolomCore/AskIntent.swift`: `resolveAsk`, the check between the model's structured command and execution.
 - `Sources/Kolom/Hotkeys.swift`: Carbon hotkey registration and conflict handling.
 - `Sources/Kolom/StripInput.swift`: scroll input and native column resize handles.
-- `Sources/Kolom/main.swift`: app lifecycle, menu-bar item and display panels.
+- `Sources/Kolom/main.swift`: startup, the single-instance lock and the recovery watchdog.
+- `Sources/Kolom/AppDelegate.swift`: app lifecycle and quitting; `AppDelegate+Menus.swift` (menu bar icon and main menu), `AppDelegate+Panels.swift` (rails and panels on screen), `AppDelegate+Updates.swift`, `AppDelegate+Palette.swift` (move palette, Ask Kolom).
+- `Sources/Kolom/PerformanceDashboard.swift`, `ProcessResources.swift`, `ResourceMonitor.swift`, `Sources/KolomCore/ProcessGrouping.swift`: Performance. `Sources/Kolom/DiskMap/`, `Sources/KolomCore/DiskMap.swift`, `DiskScan.swift`, `DiskMarks.swift`: the Disk Map.
+- `Sources/Kolom/SmokeTest.swift`: `--smoke-test`.
 
 See [PROVENANCE.md](PROVENANCE.md) for implementation provenance. No Paneru source or dependencies are incorporated.
 

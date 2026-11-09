@@ -1,3 +1,7 @@
+## 0.2.13 — 2026-11-09
+
+- Restructured, no behaviour change. `Controller.swift` (1,698 lines) keeps the controller's state, `refresh` and `apply`; its other methods moved, unchanged, into `Controller+Session`, `+Displays`, `+Commands`, `+Panels` and `+Logs`. The app delegate left `main.swift` (now startup, the instance lock and the recovery watchdog) for `AppDelegate.swift` and `AppDelegate+Menus`, `+Panels`, `+Updates`, `+Palette`. The core checks moved from one 1,683-line file into one file per area, run in the same order. Checked by a script that every original line survives (only file headers, extension wrappers and access modifiers differ), the same 35 PASS lines in the same order, and the smoke test.
+
 ## 0.2.12 — 2026-11-09
 
 - **Idle sessions.** Performance reads when each terminal last saw typing or output (macOS stamps the terminal device). Sessions say "idle 7 h"; those idle for more than a day are gathered under **Idle for more than a day**, longest first, with "(folder deleted)" when the shell's folder is gone and temporary folders shown as `tmp/`. On the test Mac, 18 of 32 cmux shells had been untouched for 3–21 days. Right-click stops them: shells get SIGHUP (they ignore SIGTERM), other programs SIGTERM.
