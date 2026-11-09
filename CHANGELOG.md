@@ -1,3 +1,7 @@
+## 0.2.19 — 2026-11-09
+
+- **Switching an LG to its second Space no longer bounces back.** Kolom took "listed by Accessibility" to mean "on a Space shown", but macOS lists some windows while they are on a Space not shown. After the switch Kolom pulled such a window out of the waiting strip and placed it on the new Space's strip, and moving a window that lives on another Space makes macOS switch to that Space: the LG returned to its first Space within a second (display trace, twice). Kolom now asks the WindowServer which Space each window is on: a window on a Space not shown waits in that Space's strip and is never placed, whether or not it is listed; a window moved to a hidden Space with Mission Control leaves the strip on screen.
+
 ## 0.2.18 — 2026-11-09
 
 - **Dragging a window by its title bar to another display works again.** Kolom treats a window move as yours only if the press was on that window's title bar or edge; it took "that window" to be the focused one, so pressing on a background window (the usual way to drag one, as the press comes before it is focused) counted as the app moving itself, and Kolom put the window back. It also counted only the top 36 points, while cmux's and Safari's bars with tabs are taller. The window under the pointer is now asked of the WindowServer, focused or not, and the top area counts down to 15% of the window's height (36–120 points). Dragging a rail icon to another display's rail was unaffected.
