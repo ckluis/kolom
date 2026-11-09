@@ -57,8 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     var recoveryHelper: Process?
     var agent: AgentControl?
     var agentWasEnabled = false
+    /// SIGTERM (scripts/install.sh --quit-running) quits like the menu item: windows are restored first.
+    var terminationSignal: DispatchSourceSignal?
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        signal(SIGTERM, SIG_IGN)
+        let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        terminate.setEventHandler { NSApp.terminate(nil) }
+        terminate.resume()
+        terminationSignal = terminate
         installMenu()
         agent = AgentControl(model: model)
         model.showPalette = { [weak self] in self?.openPalette() }
@@ -67,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             [weak self] _ in self?.syncAppearance()
         }
         model.layoutChanged = { [weak self] in self?.syncPanels() }
+        model.updates.changed = { [weak self] in self?.model.writeLiveState() }
+        model.updates.start()
         hotkeys.action = { [weak self] id in
             guard let self, self.model.acting, !self.model.agentBusy, self.palette == nil else { return }
             // The display under the pointer is the target for ordinal shortcuts.
@@ -292,6 +301,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc func permissionSettings() { model.requestAccess() }
     @objc func checkPermission() { _ = model.checkAccess() }
     @objc func revealApp() { model.revealRunningApp() }
+    @objc func openReleaseNotes() { model.updates.openReleaseNotes() }
+    @objc func copyUpdateCommand() {
+        model.updates.copyCommand()
+        model.status = "Update command copied · paste it in Terminal"
+    }
+    @objc func checkForUpdates() {
+        model.status = "Checking for updates…"
+        model.updates.check { [weak self] message in self?.model.status = message }
+    }
+    @objc func toggleAutomaticUpdates() { model.updates.automatic.toggle() }
     @objc func selectTheme(_ sender: NSMenuItem) {
         UserDefaults.standard.set(sender.title, forKey: "kolomTheme")
         syncAppearance()
@@ -309,6 +328,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         item(
             "Kolom · \(BuildInfo.label)",
             nil, enabled: false)
+        if let update = model.updates.available {
+            item("Kolom \(update.version) is available · What’s new…", #selector(openReleaseNotes))
+            item("Copy update command", #selector(copyUpdateCommand)).toolTip =
+                "Paste in Terminal: \(model.updates.command)\nKolom quits first (your windows are restored), then the new build opens."
+        }
         item(model.status, nil, enabled: false)
         menu.addItem(.separator())
         if model.enabled {
@@ -372,6 +396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if !model.permissionGranted { item("Open window-control permission settings…", #selector(permissionSettings)) }
         item("Check window-control access", #selector(checkPermission))
         item("Reveal this Kolom app", #selector(revealApp))
+        item("Check for updates now", #selector(checkForUpdates))
+        item("Check for updates automatically", #selector(toggleAutomaticUpdates)).state =
+            model.updates.automatic ? .on : .off
         menu.addItem(.separator())
         item("Quit Kolom", #selector(NSApplication.terminate(_:))).target = NSApp
         statusItem.menu = menu

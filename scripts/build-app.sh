@@ -47,6 +47,8 @@ if git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 COMMIT_KEY=""
 if [[ -n "$COMMIT" ]]; then COMMIT_KEY="<key>KolomCommit</key><string>$COMMIT</string>"; fi
+# Where this build came from, so the update command can return to it.
+SOURCE_PATH="${PROJECT_DIR//&/&amp;}"; SOURCE_PATH="${SOURCE_PATH//</&lt;}"; SOURCE_PATH="${SOURCE_PATH//>/&gt;}"
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,6 +62,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
 $COMMIT_KEY
+<key>KolomSource</key><string>$SOURCE_PATH</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>

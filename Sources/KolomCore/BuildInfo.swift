@@ -16,6 +16,8 @@ public enum BuildInfo {
     public static var version: String { info["CFBundleShortVersionString"] as? String ?? "development" }
     /// The short commit the build came from, with "-dirty" for uncommitted changes.
     public static var commit: String? { info["KolomCommit"] as? String }
+    /// The source checkout the build came from, for the update command.
+    public static var source: String? { info["KolomSource"] as? String }
     /// "0.2.1 (b1a2c3d)", or the bare version when built without git.
     public static var label: String { commit.map { "\(version) (\($0))" } ?? version }
 }

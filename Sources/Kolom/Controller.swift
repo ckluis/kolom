@@ -596,6 +596,8 @@ final class KolomController: ObservableObject {
         stateURL: storage.appendingPathComponent("display-arrangement.json"),
         sessionID: Self.loginSessionID())
     let pointerRouter = PointerRouter()
+    /// Daily check for a newer release on GitHub; reported in live state for agents.
+    let updates = UpdateChecker()
     private var arrangementTask: DispatchWorkItem?
     /// Keep displays corner to corner while managing, so columns never reach a neighbor.
     var isolateDisplays: Bool {
@@ -1240,7 +1242,7 @@ final class KolomController: ObservableObject {
         let state: [String: Any] = [
             "pid": getpid(), "permissionGranted": permissionGranted, "restoring": restoring,
             "recoveryAvailable": recoveryAvailable, "timestamp": Date().timeIntervalSince1970,
-            "version": BuildInfo.version, "build": BuildInfo.label, "enabled": enabled,
+            "version": BuildInfo.version, "build": BuildInfo.label, "update": updates.liveState, "enabled": enabled,
             "suspended": suspension?.rawValue ?? NSNull(),
 
             "agentBusy": agentBusy, "desktopColumnRatio": 1.1,

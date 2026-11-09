@@ -1,3 +1,10 @@
+## 0.2.2 — 2026-11-09
+
+- Kolom tells you when a newer release exists. Once a day (first a minute after launch) it asks GitHub for the latest release; when it is newer, the menu bar menu shows **Kolom x.y.z is available · What's new…** and **Copy update command**. **Check for updates now** checks at once and **Check for updates automatically** turns it off. It is one HTTPS GET with a `Kolom/<version>` user agent and no cookies; nothing about the Mac or its windows is sent, and Kolom never downloads or installs anything itself. `kolom_state` reports it under `update`, so agents can mention it. README and SECURITY.md no longer say Kolom makes no network connections.
+- Every version merged to `main` becomes a GitHub release (`v0.2.2`), with its changelog section as the notes.
+- `scripts/install.sh --quit-running` quits a running Kolom first and waits for it to exit, so one pasted command updates it. Kolom now quits on SIGTERM as its Quit item does, restoring windows first; earlier copies exit and their recovery helper restores them.
+- Builds record their source checkout (`KolomSource`), so the update command returns to it.
+
 ## 0.2.1 — 2026-11-09
 
 - Display changes (KVM switches, DisplayLink monitors coming and going) no longer scatter the layout. While displays reconfigure, macOS moves windows itself; Kolom took those moves as drags, which forgot a window's home display and pulled it out of its stack. Window moves are read as drags only once displays have settled and match what Kolom laid out against. A window briefly missing during a display change also keeps its remembered home.
