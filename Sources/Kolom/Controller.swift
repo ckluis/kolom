@@ -104,13 +104,20 @@ final class KolomController: ObservableObject {
                 let mouse = NSEvent.mouseLocation
                 let top = NSScreen.screens.first?.frame.maxY ?? 0
                 let point = CGPoint(x: mouse.x, y: top - mouse.y)
-                let focused = self.bridge.focusedWindowID(in: self.windows)
-                self.nativeGestureWindow = focused.flatMap { id in
-                    guard let frame = self.expected[id], !self.offStrip.contains(id),
-                        frame.insetBy(dx: -12, dy: -12).contains(point)
+                // The window the press lands on, focused or not: dragging a background
+                // window by its title bar is the usual way to move one, and the press
+                // happens before it becomes focused. Toolbars with tabs (cmux, Safari)
+                // reach well below a plain 36-point title bar.
+                self.nativeGestureWindow = self.bridge.windowUnder(point).flatMap { hit in
+                    guard
+                        let id = self.windows.first(where: { entry in
+                            windowServerNumber(fromID: entry.key, pid: entry.value.pid) == hit.number
+                        })?.key, !self.offStrip.contains(id)
                     else { return nil }
+                    let frame = hit.frame
                     let border = point.x < frame.minX + 12 || point.x > frame.maxX - 12 || point.y > frame.maxY - 12
-                    return border || point.y < frame.minY + 36 ? id : nil
+                    let top = point.y < frame.minY + min(120, max(36, frame.height * 0.15))
+                    return border || top ? id : nil
                 }
                 self.nativeGestureUntil = .distantPast
             } else {

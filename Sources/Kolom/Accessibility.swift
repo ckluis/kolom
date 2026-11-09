@@ -326,6 +326,21 @@ final class AccessibilityBridge {
         let rows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
         return Set(rows.compactMap { $0[kCGWindowNumber as String] as? UInt32 })
     }
+    /// The frontmost ordinary window under a point (Accessibility coordinates, top-left
+    /// origin), with its frame: what a click there lands on, focused or not.
+    func windowUnder(_ point: CGPoint) -> (number: UInt32, frame: CGRect)? {
+        let rows =
+            (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]) ?? []
+        for row in rows where (row[kCGWindowLayer as String] as? Int) == 0 {
+            guard let number = row[kCGWindowNumber as String] as? UInt32,
+                let bounds = row[kCGWindowBounds as String] as? NSDictionary,
+                let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(point)
+            else { continue }
+            return (number, frame)
+        }
+        return nil
+    }
     func isFullScreen(_ element: AXUIElement) -> Bool { (value(element, "AXFullScreen") as? Bool) == true }
     func isDestroyed(_ element: AXUIElement) -> Bool {
         var value: CFTypeRef?
