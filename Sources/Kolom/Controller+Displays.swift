@@ -146,24 +146,31 @@ extension KolomController {
         DispatchQueue.main.asyncAfter(
             deadline: .now() + max(0.2, displayIntentUntil.timeIntervalSinceNow + 0.2), execute: task)
     }
-    /// Applies the display staircase while managing independent displays, or puts the desk back.
-    func reconcileArrangement() {
+    /// Applies the display staircase while managing independent displays, or puts the
+    /// desk back. Returns true when it changed the display arrangement (macOS then
+    /// reports a display change of its own).
+    @discardableResult func reconcileArrangement() -> Bool {
         arrangementTask?.cancel()
         arrangementTask = nil
-        guard enabled, !restoring else { return }
+        guard enabled, !restoring else { return false }
         guard isolateDisplays else {
-            if restoreArrangement() { noteDisplayReconfiguration() }
-            return
+            if restoreArrangement() {
+                noteDisplayReconfiguration()
+                return true
+            }
+            return false
         }
         // Suspended (asleep, locked): keep what is applied; resume reconciles.
-        guard suspension == nil else { return }
-        if arrangement.reconcile() {
+        guard suspension == nil else { return false }
+        let changed = arrangement.reconcile()
+        if changed {
             record("staircase", ["applied": true])
             noteDisplayReconfiguration()
         }
         let maps = arrangement.pointerMaps
         pointerRouter.update(technical: maps.technical, desk: maps.desk)
         writeLiveState()
+        return changed
     }
     /// Returns true when display geometry changed.
     @discardableResult func restoreArrangement() -> Bool {
@@ -329,6 +336,17 @@ extension KolomController {
             self.expected = [:]
             for display in connected {
                 self.workspaces[display.id]?.clampOffset(viewportWidth: self.viewport(display).width, desktopTail: true)
+            }
+            // Arrange the displays before placing windows. Placing first and applying
+            // the staircase seconds later moved every window twice on a DisplayLink
+            // reconnect (display-trace, 0.2.14). Applying it reports a display change,
+            // and windows are placed once, after it.
+            if self.reconcileArrangement() {
+                self.saveLayout()
+                self.status = "Displays updated · arranging them before placing windows"
+                // Should macOS not report the staircase's display change, place windows anyway.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.refresh(force: true) }
+                return
             }
             self.apply()
             self.saveLayout()

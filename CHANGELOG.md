@@ -1,3 +1,7 @@
+## 0.2.15 — 2026-11-09
+
+- **One correction on a DisplayLink reconnect, not two.** The display trace from 0.2.14 showed each reconnect moving windows twice: macOS moved 4–5 windows as the displays appeared and Kolom put them back after 0.9 s; then, 4 s after the reconnect, Kolom applied its display staircase, macOS moved 4 windows again, and Kolom put them back again. The staircase is now applied as soon as the displays settle (with the display change Kolom already waits 0.35 s for), before any window is placed, and windows are placed once, after it.
+
 ## 0.2.14 — 2026-11-09
 
 - **Switching Spaces no longer pauses Kolom.** It used to: Accessibility lists only the current Space's windows, so a Space switch looked like most windows vanishing, and Kolom paused and put every window back, which looks like a crash (the owner's first try of Spaces with Kolom did exactly that). Kolom now reads which Space each display shows from the WindowServer and manages the Spaces shown when it started; on another Space it waits like it does for sleep (layout kept, rails hidden, nothing moved) and picks up again when you return. Displays that connect adopt their Space; a Space that vanishes is replaced. Without the WindowServer's Space list, the old pause remains. Tested with shared Spaces; per-display Spaces suspend all displays and are untested live.
