@@ -328,6 +328,24 @@ print(
     "PASS: accepted native width expands the shared column and preserves the next-column gap, including oversized windows"
 )
 
+// A cmux column of 1939 pt on a 1920 pt display (viewport 1840): macOS clamped the
+// window to 1856 on every pass and the next columns sat off-strip.
+var tooWide = Workspace(columns: [
+    Column(width: 1939.3125, tiles: [Tile("cmux")]), Column(width: 640, tiles: [Tile("a"), Tile("b")]),
+    Column(width: 1586, tiles: [Tile("safari")]),
+])
+XCTAssertTrue(tooWide.fitColumns(maxWidth: 1840))
+XCTAssertEqual(tooWide.columns.map(\.width), [1840, 640, 1586])
+XCTAssertFalse(tooWide.fitColumns(maxWidth: 1840))
+let fitted = tooWide.frames(in: CGRect(x: 64, y: 46, width: 1840, height: 1018))
+XCTAssertEqual(fitted["cmux"]!.maxX, 64 + 1840)
+XCTAssertFalse(tooWide.fitColumns(maxWidth: 100) && tooWide.columns.contains { $0.width < 260 })
+var capped = Workspace(columns: [Column(width: 1200, tiles: [Tile("cmux")])])
+XCTAssertTrue(capped.accommodateWindowWidth("cmux", actualWidth: 1920, maxWidth: 1840))
+XCTAssertEqual(capped.columns[0].width, 1840)
+XCTAssertFalse(capped.accommodateWindowWidth("cmux", actualWidth: 1920, maxWidth: 1840))
+print("PASS: columns never exceed their display, and accommodation stops at the display width")
+
 for owningWidth in [800.0, 1840, 2560] {
     for before in [true, false] {
         let physical = bufferedParkingFrame(

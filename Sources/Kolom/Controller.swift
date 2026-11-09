@@ -287,7 +287,8 @@ final class KolomController: ObservableObject {
     func revealRunningApp() { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
 
     func pause(logged: Bool = true, completion: (() -> Void)? = nil) {
-        if enabled && logged { logPause(pauseReason ?? "paused from the menu or a command") }
+        if enabled && logged { logPause(pauseReason ?? "paused from the menu or a command", detail: pauseDetail) }
+        pauseDetail = nil
         suspension = nil
         absence = AbsenceTracker()
         absentWindows = []
@@ -501,19 +502,22 @@ final class KolomController: ObservableObject {
     }
     /// Why the last pause happened, appended to the final restoration status.
     var pauseReason: String?
+    /// Which rule paused and what it saw; logged only, never shown in the status.
+    var pauseDetail: String?
     var pauseLogURL: URL { storage.appendingPathComponent("pause-log.json") }
     /// Keep the last pauses on disk: a pause restores every window and removes the
     /// rails, which looks like a crash unless its reason can be read afterwards.
-    func logPause(_ reason: String) {
+    func logPause(_ reason: String, detail: String? = nil) {
         var log =
             (try? Data(contentsOf: pauseLogURL)).flatMap {
                 try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]]
             } ?? []
-        log.append([
+        var entry: [String: Any] = [
             "time": Date().timeIntervalSince1970, "reason": reason,
-            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                ?? "development",
-        ])
+            "version": BuildInfo.version, "build": BuildInfo.label,
+        ]
+        if let detail { entry["detail"] = detail }
+        log.append(entry)
         if let data = try? JSONSerialization.data(withJSONObject: Array(log.suffix(30)), options: [.sortedKeys]) {
             try? data.write(to: pauseLogURL, options: .atomic)
         }
@@ -762,8 +766,14 @@ final class KolomController: ObservableObject {
             self?.recheckDeferredSpaceChange()
         }
     }
-    func pauseForSpaceChange() {
+    func pauseForSpaceChange(_ detail: String) {
         pauseReason = "paused after a Space change; choose Enable to manage this Space"
+        let stamp = ISO8601DateFormatter()
+        pauseDetail =
+            detail + " · last display reconfiguration "
+            + (lastDisplayReconfiguration == .distantPast ? "never" : stamp.string(from: lastDisplayReconfiguration))
+            + " · displays " + realDisplays().map { "\($0.name) \(Int($0.frame.width))x\(Int($0.frame.height))" }
+            .joined(separator: ", ")
         pause()
     }
     /// Pause on a Space change that nothing explains, or if any display lost most
@@ -797,19 +807,23 @@ final class KolomController: ObservableObject {
         spaceChangeDeferred = false
         if let at = spaceChangeUnexplainedAt, lastDisplayReconfiguration < at.addingTimeInterval(-0.25) {
             spaceChangeUnexplainedAt = nil
-            pauseForSpaceChange()
+            pauseForSpaceChange(
+                "unexplained Space change at \(ISO8601DateFormatter().string(from: at)), no display change near it")
             return
         }
         spaceChangeUnexplainedAt = nil
         let listed = Set(bridge.discover().map(\.id))
-        let lostDisplay = displays.contains { d in
-            let ids = (workspaces[d.id]?.windowIDs ?? []).filter { id in
-                windows[id].map { !bridge.unresponsivePIDs.contains($0.pid) && !bridge.isDestroyed($0.element) }
-                    ?? false
+        let lost = displays.lazy.compactMap { d -> String? in
+            let ids = (self.workspaces[d.id]?.windowIDs ?? []).filter { id in
+                self.windows[id].map {
+                    !self.bridge.unresponsivePIDs.contains($0.pid) && !self.bridge.isDestroyed($0.element)
+                } ?? false
             }
-            return !ids.isEmpty && ids.filter(listed.contains).count * 2 < ids.count
-        }
-        if lostDisplay { pauseForSpaceChange() } else { scheduleRefresh() }
+            let shown = ids.filter(listed.contains).count
+            return !ids.isEmpty && shown * 2 < ids.count
+                ? "\(d.name) still lists \(shown) of its \(ids.count) managed windows" : nil
+        }.first
+        if let lost { pauseForSpaceChange(lost) } else { scheduleRefresh() }
     }
     /// While paused, rescue windows whose records were dropped because they were
     /// on another Space, once that Space is shown and they are still unreachable.
@@ -901,6 +915,9 @@ final class KolomController: ObservableObject {
         displayChangeTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
     }
+    /// The widest column a display can show whole: its viewport without side panels,
+    /// so opening the guide or Performance never narrows the remembered widths.
+    func maxColumnWidth(_ display: DisplayModel) -> Double { max(260, display.frame.width - 48 - 32) }
     func viewport(_ display: DisplayModel) -> CGRect {
         let shelf: Double =
             performanceDisplay == display.id || guideDisplay == display.id
@@ -984,7 +1001,9 @@ final class KolomController: ObservableObject {
                         expected.removeValue(forKey: w.id)
                         changed = true
                     case .constrained:
-                        if workspaces[display.id]?.accommodateWindowWidth(w.id, actualWidth: w.frame.width) == true {
+                        if workspaces[display.id]?.accommodateWindowWidth(
+                            w.id, actualWidth: w.frame.width, maxWidth: maxColumnWidth(display)) == true
+                        {
                             expected.removeValue(forKey: w.id)
                             changed = true
                             if workspaces[display.id]?.focus == w.id {
@@ -1142,7 +1161,7 @@ final class KolomController: ObservableObject {
         let report: [String: Any] = [
             "time": Date().timeIntervalSince1970, "missed": missed.count,
             "found": missed.subtracting(startupHold.dropped).count, "dropped": startupHold.dropped.count,
-            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            "version": BuildInfo.version, "build": BuildInfo.label,
         ]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) {
             try? data.write(to: storage.appendingPathComponent("startup-hold.json"), options: .atomic)
@@ -1221,8 +1240,8 @@ final class KolomController: ObservableObject {
         let state: [String: Any] = [
             "pid": getpid(), "permissionGranted": permissionGranted, "restoring": restoring,
             "recoveryAvailable": recoveryAvailable, "timestamp": Date().timeIntervalSince1970,
-            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-                ?? "development", "enabled": enabled, "suspended": suspension?.rawValue ?? NSNull(),
+            "version": BuildInfo.version, "build": BuildInfo.label, "enabled": enabled,
+            "suspended": suspension?.rawValue ?? NSNull(),
 
             "agentBusy": agentBusy, "desktopColumnRatio": 1.1,
             "displayArrangement": arrangement.status, "pointerWarps": pointerRouter.warpCount,
@@ -1285,7 +1304,12 @@ final class KolomController: ObservableObject {
         }
         for d in displays {
             let area = viewport(d)
-            guard let space = workspaces[d.id] else { continue }
+            guard var space = workspaces[d.id] else { continue }
+            if space.fitColumns(maxWidth: maxColumnWidth(d)) {
+                space.clampOffset(viewportWidth: area.width, desktopTail: true)
+                workspaces[d.id] = space
+                saveLayout()
+            }
             let screenRect = d.fullFrame
             let frames = space.frames(in: area)
             for id in space.windowIDs {

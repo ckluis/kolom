@@ -307,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return entry
         }
         item(
-            "Kolom · \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "development")",
+            "Kolom · \(BuildInfo.label)",
             nil, enabled: false)
         item(model.status, nil, enabled: false)
         menu.addItem(.separator())

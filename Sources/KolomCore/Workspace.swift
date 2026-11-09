@@ -82,15 +82,34 @@ public struct Workspace: Codable, Equatable {
     }
     /// If an app rejects a narrower request, reserve its actual width for the
     /// entire stack. Never let the layout pretend the native window is smaller.
-    @discardableResult public mutating func accommodateWindowWidth(_ id: String, actualWidth: Double) -> Bool {
-        guard actualWidth.isFinite, actualWidth > 0, actualWidth <= 10000,
-            let c = columnIndex(id), actualWidth > columns[c].width + 4
-        else { return false }
+    /// Never beyond `maxWidth`: a column wider than its display is clamped by macOS
+    /// and would be read as a refusal on every pass.
+    @discardableResult public mutating func accommodateWindowWidth(
+        _ id: String, actualWidth: Double, maxWidth: Double = 10000
+    ) -> Bool {
+        guard actualWidth.isFinite, actualWidth > 0, actualWidth <= 10000, let c = columnIndex(id) else {
+            return false
+        }
+        let width = min(actualWidth, max(260, maxWidth))
+        guard width > columns[c].width + 4 else { return false }
         let group = columns[c].gridID
         for i in columns.indices where i == c || (group != nil && columns[i].gridID == group) {
-            columns[i].width = actualWidth
+            columns[i].width = width
         }
         return true
+    }
+    /// Narrows columns wider than `maxWidth`, such as one carried over from a wider
+    /// display or resized past the edge. macOS keeps a window within its display, so
+    /// such a column can never be shown whole and its app looks like it refuses the
+    /// width on every pass. Returns true when any width changed.
+    @discardableResult public mutating func fitColumns(maxWidth: Double) -> Bool {
+        let limit = max(260, maxWidth)
+        var changed = false
+        for i in columns.indices where columns[i].width > limit + 0.5 {
+            columns[i].width = limit
+            changed = true
+        }
+        return changed
     }
     public mutating func setHeight(_ id: String, height: Double, availableHeight: Double, gap: Double = 16) {
         guard let c = columnIndex(id), columns[c].tiles.count > 1,

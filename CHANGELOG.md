@@ -1,6 +1,10 @@
-## Unreleased
+## 0.2.1 — 2026-11-09
 
 - Display changes (KVM switches, DisplayLink monitors coming and going) no longer scatter the layout. While displays reconfigure, macOS moves windows itself; Kolom took those moves as drags, which forgot a window's home display and pulled it out of its stack. Window moves are read as drags only once displays have settled and match what Kolom laid out against. A window briefly missing during a display change also keeps its remembered home.
+- A column can no longer be wider than its display. One carried over from a wider monitor, or resized past the edge, was clamped by macOS on every pass (Kolom then reported the app as constraining its geometry) and pushed the columns after it off the strip. Widths now fit the display's full viewport; side panels do not narrow them.
+- Every build carries its own version. `VERSION` holds the release (now 0.2.1) and `build-app.sh` stamps it with a build number that counts commits (continuing above 0.2.0's 26) and the commit it came from (`-dirty` with uncommitted changes); the menu shows `Kolom · 0.2.1 (b1a2c3d)`, and pause and startup logs record the same. kolomctl reports the bundle's version to MCP clients instead of a fixed 0.2.0. CI fails a pull request that does not raise `VERSION` above `main`.
+- Builds no longer fail after the checkout moves or is renamed: module caches built at another path are started over.
+- Pauses after a Space change record which rule fired (an unexplained Space change, or a display that stopped listing most of its windows), when displays last reconfigured and which displays were connected, in `pause-log.json`. Both rules used to log the same sentence.
 
 ## 0.2.0 — 2026-10-26
 
