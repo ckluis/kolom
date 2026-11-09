@@ -3,7 +3,7 @@ import KolomCore
 
 /// What a Disk Map window shows: one scan, where you are in it, what is selected.
 final class DiskMapModel: ObservableObject {
-    struct Target {
+    struct Target: Equatable {
         let path: String
         let name: String
         let startupDisk: Bool
@@ -22,8 +22,18 @@ final class DiskMapModel: ObservableObject {
     @Published private(set) var available: UInt64?
     @Published private(set) var capacity: UInt64?
     private(set) var overview: [(name: String, bytes: UInt64)] = []
+    @Published private(set) var marks = DiskMarks()
+    @Published var reviewing = false
+    /// A sentence about the last mark refused or removal finished; cleared on the next action.
+    @Published var notice: String?
+    @Published private(set) var removing: (done: Int, total: Int)?
+    var policy: DiskRemovalPolicy {
+        DiskRemovalPolicy(home: FileManager.default.homeDirectoryForCurrentUser.path, scanRoot: target.path)
+    }
     let depth = 3
     weak var view: TreemapView?
+    /// Closes the Disk Map panel (× or Escape at the top).
+    var requestClose: (() -> Void)?
     private var scan: DiskScan?
     private var timer: Timer?
     private var backStack: [DiskNode] = []
@@ -50,6 +60,8 @@ final class DiskMapModel: ObservableObject {
         backStack = []
         forwardStack = []
         overview = []
+        marks.removeAll()
+        notice = nil
         stopped = false
         isScanning = true
         let started = Date()
@@ -226,6 +238,103 @@ final class DiskMapModel: ObservableObject {
         select(siblings[next])
     }
 
+    // MARK: Marking and removing
+
+    /// Space: marks or unmarks; explains a refusal instead.
+    func toggleMark(_ node: DiskNode?) {
+        guard let node, root != nil, removing == nil else { return }
+        notice = nil
+        switch marks.toggle(node, policy: policy) {
+        case .insideMarked(let path)?:
+            notice = "Inside \((path as NSString).lastPathComponent), which is marked: unmark it to choose within it"
+        case .protected(let reason)?:
+            notice = "\(node.title) can’t be removed here · \(reason)"
+        case nil:
+            break
+        }
+        view?.needsDisplay = true
+    }
+
+    func unmark(_ node: DiskNode) {
+        marks.unmark(node)
+        view?.needsDisplay = true
+    }
+
+    func clearMarks() {
+        marks.removeAll()
+        view?.needsDisplay = true
+    }
+
+    /// Free space once the marks are gone (all on the scanned disk; the scan stays on one).
+    var freeAfterMarks: UInt64? { available.map { $0 &+ marks.bytes } }
+
+    /// Removes everything marked, moving it to the Trash or deleting it, one at a
+    /// time in the background. Each path is checked again first; the map updates at
+    /// once and says how much free space actually came back.
+    func removeMarked(permanently: Bool) {
+        let items = marks.nodes
+        guard !items.isEmpty, removing == nil else { return }
+        let before = currentAvailable()
+        reviewing = false
+        removing = (0, items.count)
+        let paths = items.map(\.path)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var removed: [Int] = []
+            var failures: [String] = []
+            for (index, path) in paths.enumerated() {
+                let url = URL(fileURLWithPath: path)
+                if !DiskRemovalPolicy.stillTheSame(path) {
+                    failures.append("\(url.lastPathComponent): no longer where the scan saw it")
+                } else {
+                    do {
+                        if permanently {
+                            try FileManager.default.removeItem(at: url)
+                        } else {
+                            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                        }
+                        removed.append(index)
+                    } catch {
+                        failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                    }
+                }
+                DispatchQueue.main.async { self?.removing = (index + 1, paths.count) }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                for index in removed {
+                    let node = items[index]
+                    node.parent?.remove(node)
+                    self.marks.unmark(node)
+                    if self.selection === node { self.selection = nil }
+                    if let focus = self.focus, focus.lineage.contains(where: { $0 === node }) {
+                        self.focus = node.parent
+                    }
+                }
+                self.removing = nil
+                self.refreshFreeSpace()
+                let after = self.currentAvailable()
+                let gained = after.flatMap { a in before.map { a > $0 ? a - $0 : 0 } }
+                var sentence =
+                    "\(permanently ? "Deleted" : "Moved to the Trash"): \(removed.count) of \(paths.count)"
+                if let gained {
+                    sentence += " · free space \(gained > 0 ? "up \(StorageFormat.bytes(gained))" : "unchanged")"
+                    if !permanently, gained == 0 {
+                        sentence += " (the Trash still holds it; empty it to get the space back)"
+                    }
+                }
+                if !failures.isEmpty { sentence += " · not removed: " + failures.prefix(3).joined(separator: "; ") }
+                self.notice = sentence
+                self.view?.invalidateLayout()
+            }
+        }
+    }
+
+    private func currentAvailable() -> UInt64? {
+        let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey]
+        return (try? URL(fileURLWithPath: target.path).resourceValues(forKeys: keys))?
+            .volumeAvailableCapacityForImportantUsage.map { UInt64(max(0, $0)) }
+    }
+
     // MARK: Actions
 
     func reveal(_ node: DiskNode) {
@@ -247,6 +356,11 @@ final class DiskMapModel: ObservableObject {
             menu.addItem(item)
         }
         if node.isFolder, node !== focus { add("Open “\(node.title)”") { [weak self] in self?.enter(node) } }
+        if marks.isMarked(node) {
+            add("Unmark") { [weak self] in self?.unmark(node) }
+        } else if !marks.covers(node) {
+            add("Mark for Removal") { [weak self] in self?.toggleMark(node) }
+        }
         add("Reveal in Finder") { [weak self] in self?.reveal(node) }
         add("Copy Path") { [weak self] in self?.copyPath(node) }
         if focus?.parent != nil {

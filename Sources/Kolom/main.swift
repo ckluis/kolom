@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     var commandPanels: [String: NSPanel] = [:]
     var performancePanel: PerformancePanel?
     var performancePanelDisplay: String?
+    var diskMapPanel: DiskMapPanel?
+    var diskMapModel: DiskMapModel?
     var guidePanel: PerformancePanel?
     var guidePanelDisplay: String?
     var registered = false
@@ -80,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             [weak self] _ in self?.syncAppearance()
         }
         model.layoutChanged = { [weak self] in self?.syncPanels() }
+        DiskMapHost.open = { [weak self] target in self?.model.openDiskMap(target) }
         model.updates.changed = { [weak self] in
             self?.model.writeLiveState()
             self?.refreshStatusIcon()
@@ -300,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc func togglePerformance() { model.togglePerformance() }
     @objc func openDiskMap() {
         let name = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "Startup disk"
-        DiskMapWindow.open(path: "/", name: name ?? "Startup disk", startupDisk: true)
+        DiskMapHost.open(path: "/", name: name ?? "Startup disk", startupDisk: true)
     }
     @objc func toggleGuide() { model.toggleGuide() }
     @objc func toggleIsolateDisplays() { model.isolateDisplays.toggle() }
@@ -553,6 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func syncPanels() {
         syncAppearance()
         syncPerformancePanel()
+        syncDiskMapPanel()
         syncGuidePanel()
         if model.enabled && recoveryHelper?.isRunning != true {
             let helper = Process()
@@ -633,6 +637,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         syncResizeHandles()
     }
+    /// The Disk Map sits beside Performance, on its display, as wide as the
+    /// controller reserves; closing either closes it and frees its scan.
+    func syncDiskMapPanel() {
+        guard model.diskMapShown, let target = model.diskMap, let id = model.performanceDisplay,
+            let display = model.displays.first(where: { $0.id == id })
+        else {
+            diskMapPanel?.close()
+            diskMapPanel = nil
+            diskMapModel?.close()
+            diskMapModel = nil
+            if model.performanceDisplay == nil, model.diskMap != nil { model.diskMap = nil }
+            return
+        }
+        if diskMapModel?.target != target {
+            diskMapModel?.close()
+            diskMapPanel?.close()
+            diskMapPanel = nil
+            let map = DiskMapModel(target: target)
+            map.requestClose = { [weak model] in model?.closeDiskMap() }
+            diskMapModel = map
+            let panel = DiskMapPanel(
+                contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            configure(panel)
+            panel.title = "Disk Map"
+            panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 3)
+            panel.dismiss = { [weak model] in model?.closeDiskMap() }
+            panel.contentView = NSHostingView(rootView: DiskMapView(model: map))
+            diskMapPanel = panel
+            map.start()
+        }
+        let top = Double(NSScreen.screens.first?.frame.maxY ?? 0)
+        let area = display.frame
+        let left = area.minX + 48 + min(model.performanceWidth, max(400, area.width - 64))
+        diskMapPanel?.setFrame(
+            NSRect(x: left, y: top - area.maxY, width: model.diskMapWidth(display), height: area.height),
+            display: true)
+        if diskMapPanel?.isVisible == false {
+            diskMapPanel?.orderFrontRegardless()
+            diskMapPanel?.makeKey()
+        }
+    }
+
     func syncPerformancePanel() {
         guard let id = model.performanceDisplay, let display = model.displays.first(where: { $0.id == id }) else {
             performancePanel?.close()

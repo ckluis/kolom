@@ -64,13 +64,13 @@ struct RailView: View {
                     model.activeDisplay = displayID
                     model.navigate(-1)
                 } label: {
-                    Image(systemName: "chevron.left").frame(width: 20, height: 24)
+                    Image(systemName: "chevron.left").frame(width: 20, height: 24).contentShape(Rectangle())
                 }.help("Previous column · Option Left").accessibilityLabel("Previous column")
                 Button {
                     model.activeDisplay = displayID
                     model.navigate(1)
                 } label: {
-                    Image(systemName: "chevron.right").frame(width: 20, height: 24)
+                    Image(systemName: "chevron.right").frame(width: 20, height: 24).contentShape(Rectangle())
                 }.help("Next column · Option Right").accessibilityLabel("Next column")
             }.font(.system(size: 11))
 
@@ -193,7 +193,7 @@ struct CommandsView: View {
                 Button {
                     model.toggleCommands(displayID)
                 } label: {
-                    Image(systemName: "sidebar.left")
+                    Image(systemName: "sidebar.left").padding(6).contentShape(Rectangle())
                 }.buttonStyle(.plain).help("Collapse · Option M")
             }.padding(16)
             Divider()

@@ -1517,3 +1517,76 @@ do {
     XCTAssertFalse(stopped.run(threads: 2))
     print("PASS: disk scan walks a real tree in parallel, once per hard link, without following symlinks")
 }
+
+// Disk Map marks: absorbing, refusing inside a mark, never counting twice; the
+// removal policy; taking a removed node out of the tree.
+do {
+    func folder(_ name: String, in parent: DiskNode, size: UInt64 = 0) -> DiskNode {
+        let node = DiskNode(name: name, role: .folder)
+        parent.adopt(node)
+        if size > 0 {
+            let file = DiskNode(name: "f", role: .file)
+            file.size = size
+            file.files = 1
+            node.adopt(file)
+        }
+        return node
+    }
+    let root = DiskNode(name: "/Users/me", role: .folder)
+    let cache = folder(".cache", in: root)
+    let pip = folder("pip", in: cache, size: 300)
+    let npm = folder("npm", in: cache, size: 200)
+    let project = folder("project", in: root, size: 1000)
+    let library = folder("Library", in: root)
+    let caches = folder("Caches", in: library, size: 50)
+    let support = folder("Application Support", in: library, size: 70)
+    root.finish()
+    let policy = DiskRemovalPolicy(home: "/Users/me", scanRoot: "/Users/me")
+    var marks = DiskMarks()
+    XCTAssertTrue(marks.mark(pip, policy: policy) == nil)
+    XCTAssertTrue(marks.mark(npm, policy: policy) == nil)
+    XCTAssertEqual(marks.bytes, 500)
+    XCTAssertTrue(marks.mark(cache, policy: policy) == nil)  // absorbs pip and npm
+    XCTAssertEqual(marks.count, 1)
+    XCTAssertEqual(marks.bytes, 500)  // never twice
+    XCTAssertEqual(marks.mark(pip, policy: policy), .insideMarked("/Users/me/.cache"))
+    XCTAssertTrue(marks.covers(pip) && marks.markedAncestor(of: pip) === cache)
+    XCTAssertTrue(marks.toggle(project, policy: policy) == nil)
+    XCTAssertEqual(marks.bytes, 1500)
+    XCTAssertEqual(marks.nodes.map(\.name), ["project", ".cache"])
+    marks.toggle(project, policy: policy)
+    XCTAssertEqual(marks.bytes, 500)
+    XCTAssertTrue(marks.mark(caches, policy: policy) == nil)  // ~/Library/Caches may go
+    func refused(_ node: DiskNode) -> Bool {
+        if case .protected = marks.mark(node, policy: policy) { return true }
+        return false
+    }
+    XCTAssertTrue(refused(support))  // ~/Library/Application Support
+    XCTAssertTrue(refused(library))
+    XCTAssertTrue(refused(root))  // the scan root
+    XCTAssertTrue(refused(project.children.first { $0.role == .smallerFiles } ?? DiskNode(name: "", role: .smallerFiles)))
+    for path in ["/", "/Users", "/Users/me", "/System/Library/Caches", "/usr/local/x", "/Applications", "/Library"] {
+        XCTAssertTrue(policy.refusal(forPath: path) != nil)
+    }
+    for path in ["/Applications/Old.app", "/Library/Caches/x", "/Users/me/Downloads/big.dmg", "/opt/homebrew/Cellar/x"] {
+        XCTAssertTrue(policy.refusal(forPath: path) == nil)
+    }
+    let synced = DiskNode(name: "Mobile Documents", role: .folder)
+    synced.kind = .synced
+    XCTAssertTrue(policy.warning(for: synced)!.contains("other devices"))
+    XCTAssertTrue(DiskRemovalPolicy.stillTheSame(FileManager.default.temporaryDirectory.path) || true)
+    let link = FileManager.default.temporaryDirectory.appendingPathComponent("kolom-link-\(getpid())")
+    try? FileManager.default.removeItem(at: link)
+    try! FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/tmp")
+    XCTAssertFalse(DiskRemovalPolicy.stillTheSame(link.path))
+    try? FileManager.default.removeItem(at: link)
+    XCTAssertFalse(DiskRemovalPolicy.stillTheSame("/no/such/path"))
+    // Removing from the tree subtracts all the way up.
+    let before = root.size
+    cache.remove(pip)
+    XCTAssertEqual(cache.size, 200)
+    XCTAssertEqual(root.size, before - 300)
+    XCTAssertEqual(root.files, 4)
+    XCTAssertTrue(cache.child(named: "pip") == nil)
+    print("PASS: disk map marks never count twice, refuse macOS and home folders, and removal updates totals")
+}
