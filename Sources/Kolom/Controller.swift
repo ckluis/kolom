@@ -340,8 +340,26 @@ final class KolomController: ObservableObject {
                     || stillListed(window))
         }
         let discoveredIDs = Set(discovered.map(\.id))
-        // Listed now means on a Space shown: such a window leaves any waiting strip.
-        strips.claim(discoveredIDs)
+        // Where each window is comes from the WindowServer. Accessibility lists some
+        // windows while they are on a Space not shown; placing one made macOS switch
+        // back to its Space (0.2.16, the LG returned to its first Space within a second).
+        var offSpace: Set<String> = []
+        if !strips.isEmpty {
+            var seen: Set<String> = []
+            for w in discovered + Array(retained.values) where w.pid != getpid() && seen.insert(w.id).inserted {
+                guard let number = windowServerNumber(fromID: w.id, pid: w.pid),
+                    let spaces = Spaces.spaces(ofWindow: number), let space = spaces.first,
+                    !spaces.contains(where: strips.isShown), strips.wait(w.id, on: space)
+                else { continue }
+                offSpace.insert(w.id)
+                // It left the strip on screen (Mission Control): it is no longer laid out there.
+                for key in Array(workspaces.keys) where workspaces[key]?.windowIDs.contains(w.id) == true {
+                    workspaces[key]?.remove(w.id)
+                }
+            }
+        }
+        // Listed and on a Space shown: such a window leaves any waiting strip.
+        strips.claim(discoveredIDs.subtracting(offSpace))
         let waiting = strips.elsewhere
         // Windows missing from this pass keep their column for a grace period,
         // or while in native full screen; closed windows are dropped.

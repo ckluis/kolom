@@ -59,5 +59,20 @@ func spaceStripChecks() throws {
     // Kept across a restart.
     let saved = try JSONEncoder().encode(strips)
     XCTAssertEqual(try JSONDecoder().decode(SpaceStrips.self, from: saved), strips)
+    // The WindowServer, not Accessibility's list, says where a window is: a window
+    // listed while on a Space not shown waits in that Space's strip and is never placed.
+    var exact = SpaceStrips()
+    exact.start(["lg": S(current: 797, ordered: [797, 813]), "pm": S(current: 1, ordered: [1])])
+    XCTAssertFalse(exact.wait("safari", on: 1))  // shown: it is placed as usual
+    XCTAssertTrue(exact.wait("cmux", on: 813))
+    XCTAssertTrue(exact.wait("cmux", on: 813))  // once
+    XCTAssertEqual(exact.stashed["lg"]?[813]?.windowIDs, ["cmux"])
+    XCTAssertTrue(exact.isShown(797) && !exact.isShown(813))
+    XCTAssertFalse(exact.wait("x", on: 999))  // a Space Kolom does not know
+    var visible = ["lg": strip(["notes"]), "pm": strip(["safari"])]
+    _ = exact.update(["lg": S(current: 813, ordered: [797, 813]), "pm": S(current: 1, ordered: [1])], workspaces: &visible)
+    XCTAssertEqual(visible["lg"]!.windowIDs, ["cmux"])  // the waiting window shows with its Space
+    XCTAssertEqual(exact.stashed["lg"]?[797]?.windowIDs, ["notes"])
+    XCTAssertTrue(exact.wait("notes", on: 797))  // still there: stays waiting
     print("PASS: each display's Spaces keep their own strips, swap on a switch, follow renumbering and let moved windows go")
 }

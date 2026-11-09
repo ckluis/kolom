@@ -18,6 +18,20 @@ enum Spaces {
     private static let connection: Connection? = symbol("SLSMainConnectionID") ?? symbol("CGSMainConnectionID")
     private static let copySpaces: CopySpaces? =
         symbol("SLSCopyManagedDisplaySpaces") ?? symbol("CGSCopyManagedDisplaySpaces")
+    private typealias CopyWindowSpaces = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+    private static let copyWindowSpaces: CopyWindowSpaces? =
+        symbol("SLSCopySpacesForWindows") ?? symbol("CGSCopySpacesForWindows")
+
+    /// The Spaces a window is on, from the WindowServer. Accessibility lists some
+    /// windows while they are on a Space not shown, so its list cannot say this.
+    /// Empty for windows on every Space; nil when unavailable.
+    static func spaces(ofWindow number: UInt32) -> [UInt64]? {
+        guard let connection, let copyWindowSpaces,
+            let list = copyWindowSpaces(connection(), 0x7, [NSNumber(value: number)] as CFArray)?
+                .takeRetainedValue() as? [NSNumber]
+        else { return nil }
+        return list.map(\.uint64Value)
+    }
 
     private static func symbol<T>(_ name: String) -> T? {
         guard let skyLight, let pointer = dlsym(skyLight, name) else { return nil }

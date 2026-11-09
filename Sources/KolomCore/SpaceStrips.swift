@@ -84,8 +84,30 @@ public struct SpaceStrips: Codable, Equatable {
         return changed
     }
 
-    /// Windows listed now are on a Space shown: they leave any waiting strip (a
-    /// window moved there with Mission Control joins the strip it is in now).
+    /// The display a Space belongs to, if known.
+    public func display(of space: UInt64) -> String? {
+        order.first { $0.value.contains(space) }?.key ?? shown.first { $0.value == space }?.key
+    }
+
+    /// Whether a Space is shown on some display.
+    public func isShown(_ space: UInt64) -> Bool { shown.values.contains(space) }
+
+    /// Puts a window that the WindowServer says is on a Space not shown into that
+    /// Space's waiting strip (as its own column, unless it is already there), taking
+    /// it out of any other strip. Returns false when the Space is shown or unknown.
+    @discardableResult
+    public mutating func wait(_ id: String, on space: UInt64) -> Bool {
+        guard !isShown(space), let display = display(of: space) else { return false }
+        if stashed[display]?[space]?.windowIDs.contains(id) == true { return true }
+        claim([id])
+        var strip = stashed[display]?[space] ?? Workspace()
+        strip.reconcile(strip.windowIDs + [id], defaultWidth: 640)
+        stashed[display, default: [:]][space] = strip
+        return true
+    }
+
+    /// Windows on a Space shown leave any waiting strip (a window moved there with
+    /// Mission Control joins the strip it is in now).
     public mutating func claim(_ listed: Set<String>) {
         for (display, strips) in stashed {
             for (space, strip) in strips {
