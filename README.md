@@ -57,7 +57,7 @@ There is no notarized download yet. The installer signs your build with a local 
 | --- | --- |
 | **Columns that scroll** | Every window gets a column in a sideways strip. Swipe with two fingers, use ⌥← ⌥→, or keep going for the desktop. |
 | **Stacks** | Drag one rail icon onto another and the two windows share a column. Up to three windows can stack. Drag the edges to resize. |
-| **A rail per display** | One icon per window, ⌥1–⌥9 to jump, plus live CPU, memory and network readings. Click the readings for a performance dashboard. |
+| **A rail per display** | One icon per window, ⌥1–⌥9 to jump, plus live CPU, memory, network and GPU readings. Click them for a performance dashboard that groups every process under the app responsible for it. |
 | **Every monitor its own strip** | Each display keeps its own columns, focus and scroll position. Unplug a monitor and its windows move to your main display; plug it back in and they return. |
 | **Clean edges between monitors** | Columns slide off every screen edge cleanly, even between side-by-side monitors ([how](#the-display-staircase)). |
 | **Ask Kolom** | Press ⌥K and type "3×2 terminals on screen 2". It runs on Apple's on-device model ([more](#ask-kolom)). |

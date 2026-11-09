@@ -5,16 +5,20 @@ import KolomCore
 
 /// One low-frequency sampler shared by every display rail. No window capture,
 /// network requests, subprocesses, or privileged hardware APIs are involved.
+/// Per-process detail (and its grouping) is read only while the dashboard is open.
 final class ResourceMonitor: ObservableObject {
     static let shared = ResourceMonitor()
     @Published var cpu: Double?
     @Published var memory: Double?
     @Published var network: Double?
+    @Published var gpu: Double?
+    @Published var gpuHistory = ResourceHistory()
     @Published var cpuHistory = ResourceHistory()
     @Published var memoryHistory = ResourceHistory()
     @Published var networkHistory = ResourceHistory()
     @Published var processes: [ProcessResource] = []
-    @Published var apps: [AppResource] = []
+    @Published var nodes: [ProcessNode] = []
+    @Published var gpuMeasured = false
     @Published var appIcons: [String: NSImage] = [:]
     @Published var inaccessibleProcesses = 0
     @Published var detailsReady = false
@@ -27,7 +31,7 @@ final class ResourceMonitor: ObservableObject {
             self?.processSampler.reset()
         }
         processes = []
-        apps = []
+        nodes = []
         detailsReady = false
     }
     private let queue = DispatchQueue(label: "Kolom.resources", qos: .utility)
@@ -107,15 +111,16 @@ final class ResourceMonitor: ObservableObject {
         }
         previousNetwork = next
         previousTime = now
-        var detail: ([ProcessResource], [AppResource], Int)?
+        let gpuValue = GPUStatistics.utilization()
+        var detail: ProcessResourceSampler.Result?
         var icons: [String: NSImage] = [:]
         if detailed {
-            let identities: [ProcessResourceSampler.AppIdentity] = DispatchQueue.main.sync {
+            let identities: [ProcessOwnerApp] = DispatchQueue.main.sync {
                 NSWorkspace.shared.runningApplications.compactMap { app in
                     guard let path = app.bundleURL?.path else { return nil }
                     let id = app.bundleIdentifier ?? path
                     if let icon = app.icon { icons[id] = icon }
-                    return ProcessResourceSampler.AppIdentity(
+                    return ProcessOwnerApp(
                         pid: app.processIdentifier, path: path, id: id, name: app.localizedName ?? "App")
                 }
             }
@@ -125,16 +130,19 @@ final class ResourceMonitor: ObservableObject {
             self?.cpuHistory.append(cpuValue)
             self?.memoryHistory.append(memoryValue)
             self?.networkHistory.append(networkValue)
+            self?.gpuHistory.append(gpuValue)
             if let detail {
-                self?.processes = detail.0
-                self?.apps = detail.1
-                self?.inaccessibleProcesses = detail.2
+                self?.processes = detail.processes
+                self?.nodes = detail.nodes
+                self?.inaccessibleProcesses = detail.inaccessible
+                self?.gpuMeasured = detail.gpuMeasured
                 self?.appIcons = icons
                 self?.detailsReady = true
             }
             self?.cpu = cpuValue
             self?.memory = memoryValue
             self?.network = networkValue
+            self?.gpu = gpuValue
         }
     }
 }
@@ -157,12 +165,12 @@ struct ResourceMonitorView: View {
                 row("CPU", percent(monitor.cpu))
                 row("MEM", percent(monitor.memory))
                 row("NET", rate)
-                row("GPU", "—")
+                row("GPU", percent(monitor.gpu))
             }.padding(.horizontal, 5).padding(.vertical, 6)
         }.buttonStyle(.plain)
             .help("Open performance dashboard")
             .accessibilityLabel(
-                "System resources. CPU \(percent(monitor.cpu)), memory \(percent(monitor.memory)), network \(rate) bytes per second. GPU unavailable. Show details."
+                "System resources. CPU \(percent(monitor.cpu)), memory \(percent(monitor.memory)), network \(rate) bytes per second, GPU \(percent(monitor.gpu)). Show details."
             )
     }
 

@@ -6,6 +6,7 @@ private typealias DashboardState<Value> = SwiftUI.State<Value>
 private let cpuTint = Color(red: 0.37, green: 0.57, blue: 0.24)
 private let memoryTint = Color(red: 0.28, green: 0.49, blue: 0.74)
 private let networkTint = Color(red: 0.60, green: 0.40, blue: 0.68)
+private let gpuTint = Color(red: 0.80, green: 0.47, blue: 0.20)
 
 struct ResourceSparkline: View {
     let samples: [Double?]
@@ -51,33 +52,63 @@ private func resourceBytes(_ value: Double?) -> String {
     return String(format: "%.0f KB", value / 1000)
 }
 
+private enum ResourceSort: String { case cpu = "CPU", gpu = "GPU", memory = "MEMORY" }
+
+/// One visible line of the outline: a node at its unfolded depth.
+private struct OutlineRow: Identifiable {
+    let node: ProcessNode
+    let level: Int
+    var id: String { node.id }
+}
+
 struct PerformanceDashboard: View {
     @KolomPreference("kolomTheme") private var theme = "Light"
     @ObservedObject private var monitor = ResourceMonitor.shared
     @DashboardState private var groupApps = true
-    @DashboardState private var sortMemory = false
+    @DashboardState private var sort = ResourceSort.cpu
     @DashboardState private var query = ""
     @DashboardState private var expanded: Set<String> = []
     let close: () -> Void
-    private var apps: [AppResource] {
-        monitor.apps.filter {
-            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                || $0.processes.contains { $0.name.localizedCaseInsensitiveContains(query) }
-        }.sorted {
-            let a = sortMemory ? $0.memory : $0.cpu
-            let b = sortMemory ? $1.memory : $1.cpu
-            if (a ?? -1) != (b ?? -1) { return (a ?? -1) > (b ?? -1) }
-            return ($0.memory ?? 0) > ($1.memory ?? 0)
+
+    private func value(_ cpu: Double?, _ gpu: Double?, _ memory: Double?) -> Double {
+        switch sort {
+        case .cpu: return cpu ?? -1
+        case .gpu: return gpu ?? -1
+        case .memory: return memory ?? -1
         }
+    }
+    private func ordered(_ nodes: [ProcessNode]) -> [ProcessNode] {
+        nodes.sorted {
+            let a = value($0.cpu, $0.gpu, $0.memory)
+            let b = value($1.cpu, $1.gpu, $1.memory)
+            if a != b { return a > b }
+            if ($0.memory ?? 0) != ($1.memory ?? 0) { return ($0.memory ?? 0) > ($1.memory ?? 0) }
+            return $0.id < $1.id
+        }
+    }
+    private var topNodes: [ProcessNode] { ordered(monitor.nodes.filter { $0.matches(query) }) }
+    /// The outline as drawn. A filter unfolds whatever holds a match.
+    private var rows: [OutlineRow] {
+        var rows: [OutlineRow] = []
+        func add(_ node: ProcessNode, _ level: Int) {
+            rows.append(OutlineRow(node: node, level: level))
+            guard !node.children.isEmpty, expanded.contains(node.id) || !query.isEmpty else { return }
+            // A session keeps its process tree order, so children sit under their parents.
+            let children = node.kind == .session ? node.children : ordered(node.children)
+            for child in children where child.matches(query) { add(child, level + 1) }
+        }
+        for node in topNodes { add(node, 0) }
+        return rows
     }
     private var processes: [ProcessResource] {
         monitor.processes.filter {
             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
-                || $0.groupName.localizedCaseInsensitiveContains(query) || String($0.pid).contains(query)
+                || $0.groupName.localizedCaseInsensitiveContains(query)
+                || $0.detail.localizedCaseInsensitiveContains(query)
         }.sorted {
-            let a = sortMemory ? $0.memory : $0.cpu
-            let b = sortMemory ? $1.memory : $1.cpu
-            if (a ?? -1) != (b ?? -1) { return (a ?? -1) > (b ?? -1) }
+            let a = value($0.cpu, $0.gpu, $0.memory)
+            let b = value($1.cpu, $1.gpu, $1.memory)
+            if a != b { return a > b }
             return ($0.memory ?? 0) > ($1.memory ?? 0)
         }
     }
@@ -124,12 +155,14 @@ struct PerformanceDashboard: View {
         HStack(spacing: 8) {
             widget("CPU", resourcePercent(monitor.cpu), "of this Mac", monitor.cpuHistory.samples, cpuTint, 1)
             widget(
+                "GPU", resourcePercent(monitor.gpu), monitor.gpu == nil ? "Not reported by this Mac" : "busiest GPU",
+                monitor.gpuHistory.samples, gpuTint, 1)
+            widget(
                 "MEMORY", resourcePercent(monitor.memory), "used · estimate", monitor.memoryHistory.samples, memoryTint,
                 1)
             widget(
                 "NETWORK", resourceBytes(monitor.network), "per second · ↑ + ↓", monitor.networkHistory.samples,
                 networkTint, nil)
-            widget("GPU", "—", "Not available", [], .secondary, nil)
         }
     }
     private func widget(
@@ -147,16 +180,29 @@ struct PerformanceDashboard: View {
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(tint.opacity(0.12), lineWidth: 0.5))
             .accessibilityElement(children: .combine)
     }
+    private var insightPhrase: String {
+        switch sort {
+        case .cpu: return "uses the most CPU"
+        case .gpu: return "uses the most GPU time"
+        case .memory: return "has the largest memory footprint"
+        }
+    }
+    private func formatted(_ node: ProcessNode) -> String {
+        switch sort {
+        case .cpu: return resourcePercent(node.cpu)
+        case .gpu: return resourcePercent(node.gpu)
+        case .memory: return resourceBytes(node.memory)
+        }
+    }
     private var insight: some View {
         HStack(spacing: 10) {
             Image(systemName: "waveform.path").foregroundColor(cpuTint)
-            if let top = apps.first, sortMemory || top.cpu != nil {
-                Text("\(top.name)").fontWeight(.medium).lineLimit(1)
-                Text(sortMemory ? "has the largest measured memory footprint" : "has the highest measured CPU")
+            if let top = ordered(monitor.nodes).first, value(top.cpu, top.gpu, top.memory) >= 0 {
+                Text(top.title).fontWeight(.medium).lineLimit(1)
+                Text(top.count > 1 ? "\(insightPhrase) across \(top.count) processes" : insightPhrase)
                     .foregroundColor(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
-                Text(sortMemory ? resourceBytes(top.memory) : resourcePercent(top.cpu)).monospacedDigit().fontWeight(
-                    .medium)
+                Text(formatted(top)).monospacedDigit().fontWeight(.medium)
             } else {
                 Text("Collecting the first live samples…").foregroundColor(.secondary)
             }
@@ -175,11 +221,16 @@ struct PerformanceDashboard: View {
                         "Protected or exited processes could not be sampled; this table includes readable counters only."
                     )
                 }
-                Toggle("Group apps", isOn: $groupApps).toggleStyle(.switch).controlSize(.mini).font(.system(size: 10))
+                if groupApps && !expanded.isEmpty {
+                    Button("Fold all") { expanded = [] }.buttonStyle(.plain).font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                Toggle("Group by app", isOn: $groupApps).toggleStyle(.switch).controlSize(.mini).font(.system(size: 10))
+                    .help("Group every process under the app responsible for it, as Activity Monitor does")
             }.padding(.bottom, 12)
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                TextField("Filter apps or processes", text: $query).textFieldStyle(.plain)
+                TextField("Filter apps, processes, folders or PIDs", text: $query).textFieldStyle(.plain)
                 if !query.isEmpty {
                     Button {
                         query = ""
@@ -191,29 +242,19 @@ struct PerformanceDashboard: View {
                 .bottom, 12)
             HStack(spacing: 12) {
                 Text(groupApps ? "APP / PROCESS" : "PROCESS").frame(maxWidth: .infinity, alignment: .leading)
-                sortButton("CPU", memory: false).frame(width: 84, alignment: .trailing)
-                Text("GPU").frame(width: 64, alignment: .trailing).help("Per-process GPU utilization is unavailable")
-                sortButton("MEMORY", memory: true).frame(width: 100, alignment: .trailing)
-                Text("NETWORK").frame(width: 90, alignment: .trailing).help("Per-process network rates are unavailable")
+                sortButton(.cpu).frame(width: 84, alignment: .trailing)
+                sortButton(.gpu).frame(width: 84, alignment: .trailing)
+                    .help("Share of GPU time, from the GPU's own per-app accounting")
+                sortButton(.memory).frame(width: 100, alignment: .trailing)
             }.font(.system(size: 9, weight: .medium)).foregroundColor(.secondary).padding(.bottom, 9)
             Divider()
             LazyVStack(spacing: 0) {
                 if groupApps {
-                    ForEach(apps) { app in
-                        appRow(app)
-                        if expanded.contains(app.id) {
-                            ForEach(
-                                app.processes.sorted {
-                                    (sortMemory ? $0.memory ?? 0 : $0.cpu ?? 0)
-                                        > (sortMemory ? $1.memory ?? 0 : $1.cpu ?? 0)
-                                }
-                            ) { process in processRow(process, child: true) }
-                        }
-                    }
+                    ForEach(rows) { row in nodeRow(row.node, level: row.level) }
                 } else {
-                    ForEach(processes) { process in processRow(process, child: false) }
+                    ForEach(processes) { process in processRow(process) }
                 }
-                if monitor.detailsReady && (groupApps ? apps.isEmpty : processes.isEmpty) {
+                if monitor.detailsReady && (groupApps ? topNodes.isEmpty : processes.isEmpty) {
                     Text(query.isEmpty ? "No readable process counters" : "No matching apps or processes")
                         .foregroundColor(.secondary).font(.system(size: 12)).padding(24)
                 }
@@ -223,99 +264,128 @@ struct PerformanceDashboard: View {
             }
         }
     }
-    private func sortButton(_ title: String, memory: Bool) -> some View {
+    private func sortButton(_ key: ResourceSort) -> some View {
         Button {
-            sortMemory = memory
+            sort = key
         } label: {
             HStack(spacing: 3) {
-                Text(title)
-                if sortMemory == memory { Image(systemName: "arrow.down").font(.system(size: 8)) }
+                Text(key.rawValue)
+                if sort == key { Image(systemName: "arrow.down").font(.system(size: 8)) }
             }
-        }.buttonStyle(.plain).foregroundColor(sortMemory == memory ? .primary : .secondary).help(
-            "Sort by \(title.lowercased()), highest first")
+        }.buttonStyle(.plain).foregroundColor(sort == key ? .primary : .secondary).help(
+            "Sort by \(key.rawValue == "GPU" ? "GPU" : key.rawValue.lowercased()), highest first")
     }
-    private func appRow(_ app: AppResource) -> some View {
-        HStack(spacing: 12) {
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+    @ViewBuilder private func icon(_ node: ProcessNode) -> some View {
+        if let id = node.appID, let image = monitor.appIcons[id] {
+            Image(nsImage: image).resizable().frame(width: 22, height: 22)
+        } else {
+            let symbol: String = {
+                switch node.kind {
+                case .system: return "apple.logo"
+                case .session: return "terminal"
+                case .bucket: return "square.stack.3d.up"
+                case .app: return "gearshape"
+                case .process: return "circle.fill"
+                }
+            }()
+            Image(systemName: symbol).font(.system(size: node.kind == .process ? 4 : (node.level0 ? 17 : 12)))
+                .foregroundColor(.secondary).frame(width: node.level0 ? 22 : 14, height: node.level0 ? 22 : 14)
+        }
+    }
+    private func nodeRow(_ node: ProcessNode, level: Int) -> some View {
+        let open = expanded.contains(node.id) || (!query.isEmpty && !node.children.isEmpty)
+        let indent = CGFloat(level) * 17 + CGFloat(node.depth) * 12
+        return HStack(spacing: 12) {
             Button {
-                if expanded.contains(app.id) { expanded.remove(app.id) } else { expanded.insert(app.id) }
+                if !node.children.isEmpty { toggle(node.id) }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: expanded.contains(app.id) ? "chevron.down" : "chevron.right").font(
-                        .system(size: 8)
-                    ).foregroundColor(.secondary).frame(width: 9)
-                    if let icon = monitor.appIcons[app.id] {
-                        Image(nsImage: icon).resizable().frame(width: 22, height: 22)
-                    } else {
-                        Image(systemName: "gearshape").font(.system(size: 17)).foregroundColor(.secondary).frame(
-                            width: 22, height: 22)
-                    }
+                    Group {
+                        if node.children.isEmpty {
+                            Text(node.depth > 0 ? "↳" : "").foregroundColor(.secondary)
+                        } else {
+                            Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                    }.frame(width: 9)
+                    icon(node)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(app.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                        Text(
-                            app.processes.count > 1
-                                ? "\(app.processes.count) processes" : "PID \(String(app.processes[0].pid))"
-                        ).font(.system(size: 9)).foregroundColor(.secondary)
+                        Text(node.title).font(.system(size: level == 0 ? 11 : 10, weight: level == 0 ? .medium : .regular))
+                            .lineLimit(1)
+                        Text(node.detail).font(.system(size: 9)).foregroundColor(.secondary).lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     Spacer(minLength: 0)
-                }.contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel(
-                "\(app.name), \(app.processes.count) processes, \(expanded.contains(app.id) ? "collapse":"expand")")
+                }.padding(.leading, indent).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(node.detail)
+                .accessibilityLabel(
+                    node.children.isEmpty
+                        ? "\(node.title), \(node.detail)"
+                        : "\(node.title), \(node.count) processes, \(open ? "collapse" : "expand")")
             metrics(
-                cpu: app.cpu, memory: app.memory, cpuHistory: app.cpuHistory.samples,
-                memoryHistory: app.memoryHistory.samples)
-        }.padding(.vertical, 11).background(cpuTint.opacity(min(0.07, (app.cpu ?? 0) * 0.15)))
-            .overlay(alignment: .bottom) { Divider().opacity(0.45) }
+                cpu: node.cpu, gpu: node.gpu, memory: node.memory, cpuHistory: node.cpuHistory.samples,
+                gpuHistory: node.gpuHistory.samples, memoryHistory: node.memoryHistory.samples)
+        }.padding(.vertical, level == 0 ? 11 : 8)
+            .background(
+                level == 0
+                    ? cpuTint.opacity(min(0.07, (node.cpu ?? 0) * 0.15)) : Color.primary.opacity(0.02 * Double(level)))
+            .overlay(alignment: .bottom) { Divider().opacity(level == 0 ? 0.45 : 0.25) }
     }
-    private func processRow(_ process: ProcessResource, child: Bool) -> some View {
+    private func processRow(_ process: ProcessResource) -> some View {
         HStack(spacing: 12) {
             HStack(spacing: 6) {
-                if child { Text("↳").foregroundColor(.secondary).padding(.leading, 17) }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(process.name).font(.system(size: 10)).lineLimit(1)
-                    Text("PID \(String(process.pid))").font(.system(size: 9)).foregroundColor(.secondary)
+                    Text(process.groupName == process.name ? process.detail : "\(process.groupName) · \(process.detail)")
+                        .font(.system(size: 9)).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
             }.frame(maxWidth: .infinity, alignment: .leading)
             metrics(
-                cpu: process.cpu, memory: process.memory, cpuHistory: process.cpuHistory.samples,
-                memoryHistory: process.memoryHistory.samples)
-        }.padding(.vertical, 9).background(Color.primary.opacity(child ? 0.025 : 0))
+                cpu: process.cpu, gpu: process.gpu, memory: process.memory, cpuHistory: process.cpuHistory.samples,
+                gpuHistory: process.gpuHistory.samples, memoryHistory: process.memoryHistory.samples)
+        }.padding(.vertical, 9)
             .overlay(alignment: .bottom) { Divider().opacity(0.3) }
     }
-    @ViewBuilder private func metrics(cpu: Double?, memory: Double?, cpuHistory: [Double?], memoryHistory: [Double?])
-        -> some View
-    {
-        metric(resourcePercent(cpu), history: cpuHistory, tint: cpuTint, width: 84, ceiling: nil)
-        missing(width: 64, help: "GPU: unavailable through the public APIs used here")
-        metric(resourceBytes(memory), history: memoryHistory, tint: memoryTint, width: 100, ceiling: nil)
-        missing(
-            width: 90,
-            help:
-                "Per-process network attribution is not available. The top widget shows system-wide physical-interface traffic."
-        )
+    @ViewBuilder private func metrics(
+        cpu: Double?, gpu: Double?, memory: Double?, cpuHistory: [Double?], gpuHistory: [Double?],
+        memoryHistory: [Double?]
+    ) -> some View {
+        metric(resourcePercent(cpu), history: cpuHistory, tint: cpuTint, width: 84)
+        if monitor.gpuMeasured {
+            metric(resourcePercent(gpu), history: gpuHistory, tint: gpuTint, width: 84)
+        } else {
+            VStack(alignment: .trailing, spacing: 5) {
+                Text("—").font(.system(size: 11)).foregroundColor(.secondary)
+                Color.clear.frame(width: 40, height: 13)
+            }.frame(width: 84, alignment: .trailing).help("This Mac’s GPU does not report per-app time")
+        }
+        metric(resourceBytes(memory), history: memoryHistory, tint: memoryTint, width: 100)
     }
-    private func metric(_ value: String, history: [Double?], tint: Color, width: CGFloat, ceiling: Double?) -> some View
-    {
+    private func metric(_ value: String, history: [Double?], tint: Color, width: CGFloat) -> some View {
         VStack(alignment: .trailing, spacing: 5) {
             Text(value).font(.system(size: 11, weight: .medium, design: .monospaced)).monospacedDigit()
-            ResourceSparkline(samples: history, tint: tint, ceiling: ceiling, relative: true).frame(
-                width: 70, height: 13)
+            ResourceSparkline(samples: history, tint: tint, relative: true).frame(width: 70, height: 13)
         }.frame(width: width, alignment: .trailing)
-    }
-    private func missing(width: CGFloat, help: String) -> some View {
-        VStack(alignment: .trailing, spacing: 5) {
-            Text("—").font(.system(size: 11)).foregroundColor(.secondary)
-            Color.clear.frame(width: 40, height: 13)
-        }.frame(width: width, alignment: .trailing).help(help).accessibilityLabel(help)
     }
     private var footnote: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(
-                "CPU is normalized across all cores: 100% means the whole Mac. Memory is physical footprint; shared allocations can overlap. Helpers inside an identified app bundle are grouped; shared system services stay separate."
+                "Processes are grouped under the app macOS holds responsible for them, as Activity Monitor does: a terminal’s shells and everything they run, a browser’s tabs. Unfold an app for its sessions (named by shell and folder), then for their processes. Background services of macOS share one row."
             )
             Text(
-                "GPU and per-process network are unavailable, not zero. \(monitor.inaccessibleProcesses) protected or exited processes could not be sampled. Charts show real samples only; row charts use independent scales for trends."
+                "CPU is normalized across all cores: 100% means the whole Mac. GPU is each app’s share of GPU time, as the GPU itself accounts it; engines run side by side, so shares can add up past the GPU widget. Memory is physical footprint; shared allocations can overlap."
+            )
+            Text(
+                "Safari and other WebKit browsers run tabs, frames and extensions in separate Web Content processes; macOS does not say which tab each one is. Per-app network traffic needs administrator access, so only the Mac’s total is shown. \(monitor.inaccessibleProcesses) protected or exited processes could not be sampled."
             )
         }.font(.system(size: 10)).foregroundColor(.secondary).lineSpacing(3)
     }
+}
+
+private extension ProcessNode {
+    var level0: Bool { kind == .app || kind == .system || (kind == .process && depth == 0 && !id.contains("/")) }
 }
