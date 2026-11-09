@@ -185,9 +185,12 @@ final class KolomController: ObservableObject {
     /// Which rule paused and what it saw; logged only, never shown in the status.
     var pauseDetail: String?
     var pauseLogURL: URL { storage.appendingPathComponent("pause-log.json") }
-    /// Windows that left a strip, with where they were, for 30 minutes: one that is
-    /// listed again goes back to its stack instead of the end of the strip.
+    /// Windows that left a strip, with where they were: one that is listed again goes
+    /// back to its stack instead of the end of the strip.
     var departed: [String: (display: String, slot: WindowSlot, time: Date)] = [:]
+    /// How long a departed window's place is kept: long enough for a KVM switch to
+    /// another computer, a lunch break or a night with the screen locked.
+    static let departedMemory: TimeInterval = 12 * 60 * 60
     var windowEventsURL: URL { storage.appendingPathComponent("window-events.json") }
     func scheduleRefresh() {
         guard enabled, !applying else { return }
@@ -317,9 +320,17 @@ final class KolomController: ObservableObject {
         }
         // An app that answers again missed the moves skipped while it was busy.
         let recovered = wasUnresponsive.subtracting(bridge.unresponsivePIDs)
+        // A window is closed when the WindowServer no longer has it. Accessibility alone
+        // reported every window closed as the screen locked (2026-11-09 15:28), which
+        // dropped them all and lost cmux's home display across a KVM switch.
+        let serverWindows = bridge.windowServerNumbers()
+        func stillListed(_ window: NativeWindow) -> Bool {
+            windowServerNumber(fromID: window.id, pid: window.pid).map(serverWindows.contains) ?? false
+        }
         func isOpen(_ window: NativeWindow) -> Bool {
             NSRunningApplication(processIdentifier: window.pid) != nil
-                && (bridge.unresponsivePIDs.contains(window.pid) || !bridge.isDestroyed(window.element))
+                && (bridge.unresponsivePIDs.contains(window.pid) || !bridge.isDestroyed(window.element)
+                    || stillListed(window))
         }
         let discoveredIDs = Set(discovered.map(\.id))
         // Listed now means on a Space shown: such a window leaves any waiting strip.
@@ -342,8 +353,8 @@ final class KolomController: ObservableObject {
         absentWindows = Set(fresh.keys).subtracting(discoveredIDs)
         for (id, window) in retained where fresh[id] == nil && NSRunningApplication(processIdentifier: window.pid) != nil {
             let reason =
-                bridge.isDestroyed(window.element)
-                ? "Accessibility reported the window closed"
+                bridge.isDestroyed(window.element) && !stillListed(window)
+                ? "closed (the WindowServer no longer has it)"
                 : previouslyAbsent.contains(id)
                     ? "missing from Accessibility past the 10 s grace" : "not listed and not alive"
             logWindowEvent("dropped", id: id, detail: reason)
@@ -453,7 +464,7 @@ final class KolomController: ObservableObject {
             nativeGestureUntil = .distantPast
         }
         for (id, w) in windows where w.pid != getpid() && fresh[id] == nil && originals[id] != nil {
-            if NSRunningApplication(processIdentifier: w.pid) == nil || bridge.isDestroyed(w.element) {
+            if NSRunningApplication(processIdentifier: w.pid) == nil || (bridge.isDestroyed(w.element) && !stillListed(w)) {
                 originals.removeValue(forKey: id)
                 suspended.removeValue(forKey: id)
             } else {
@@ -481,7 +492,7 @@ final class KolomController: ObservableObject {
             return
         }
         let allIDs = Set(found.map(\.id)).union(held)
-        departed = departed.filter { Date().timeIntervalSince($0.value.time) < 30 * 60 }
+        departed = departed.filter { Date().timeIntervalSince($0.value.time) < Self.departedMemory }
         let previouslyAssigned = Set(workspaces.values.flatMap(\.windowIDs))
         var newlyRevealed: String?
         for d in displays {
@@ -508,7 +519,7 @@ final class KolomController: ObservableObject {
             for id in space.windowIDs where !before.windowIDs.contains(id) {
                 guard let entry = departed[id], entry.display == d.id else { continue }
                 departed[id] = nil
-                if Date().timeIntervalSince(entry.time) < 30 * 60, space.restore(id, to: entry.slot) {
+                if Date().timeIntervalSince(entry.time) < Self.departedMemory, space.restore(id, to: entry.slot) {
                     // Back where it was: not a new window, so the strip does not jump to it.
                     returnedHere.insert(id)
                     logWindowEvent(

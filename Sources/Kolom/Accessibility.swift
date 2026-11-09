@@ -319,6 +319,13 @@ final class AccessibilityBridge {
         AXUIElementSetAttributeValue(
             w.element, kAXMinimizedAttribute as CFString, minimized ? kCFBooleanTrue : kCFBooleanFalse) == .success
     }
+    /// Every window the WindowServer has, on every Space, minimized or not. Unlike an
+    /// Accessibility element, which can read as invalid for a moment (all at once as
+    /// the screen locks), a window is in this list until it is really gone.
+    func windowServerNumbers() -> Set<UInt32> {
+        let rows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
+        return Set(rows.compactMap { $0[kCGWindowNumber as String] as? UInt32 })
+    }
     func isFullScreen(_ element: AXUIElement) -> Bool { (value(element, "AXFullScreen") as? Bool) == true }
     func isDestroyed(_ element: AXUIElement) -> Bool {
         var value: CFTypeRef?

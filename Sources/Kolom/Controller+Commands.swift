@@ -114,9 +114,19 @@ extension KolomController {
         guard let ids = workspaces[activeDisplay]?.windowIDs, ids.indices.contains(index) else { return }
         focus(ids[index])
     }
-    func move(_ source: String, to target: String, placement: Placement) {
+    func move(_ source: String, to target: String, placement requested: Placement) {
         guard !agentBusy else { return }
         guard let origin = displayForWindow(source), let destination = displayForWindow(target) else { return }
+        // Dropped onto a full column: place it beside that column instead of refusing,
+        // so a drag always lands somewhere.
+        var placement = requested
+        if placement == .above || placement == .below, let space = workspaces[destination.id],
+            let c = space.columnIndex(target), space.columnIndex(source) != c,
+            space.columns[c].tiles.count >= (space.columns[c].gridRows ?? 3)
+        {
+            placement = .after
+            status = "That column holds three windows · placed beside it"
+        }
         if source.hasPrefix("desktop:") && origin.id != destination.id {
             status = "Each display has its own Desktop slot."
             return

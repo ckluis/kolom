@@ -205,7 +205,7 @@ Every Space of every display has its own strip, as if it were another display: i
 
 ## Windows that come back (0.2.10)
 
-A window missing from Accessibility for more than 10 seconds, or briefly reported closed, leaves the strip. If it is listed again within 30 minutes it goes back where it was: into its old stack at its old position when one of its stack-mates is still there, otherwise as its own column beside a former neighbour at its old width, on the display it left. It is not treated as new, so the strip does not scroll to it. `window-events.json` in `~/Library/Application Support/Kolom` keeps the last 60 drops and returns with their reasons.
+A window missing from Accessibility for more than 10 seconds leaves the strip; a window counts as closed only when the WindowServer no longer lists it either (0.2.17: Accessibility reported every window closed at once as the screen locked). If a window that left is listed again within 12 hours (30 minutes before 0.2.17) it goes back where it was: into its old stack at its old position when one of its stack-mates is still there, otherwise as its own column beside a former neighbour at its old width, on the display it left. It is not treated as new, so the strip does not scroll to it. `window-events.json` in `~/Library/Application Support/Kolom` keeps the last 60 drops and returns with their reasons.
 
 ## Display staircase (0.1.24)
 
