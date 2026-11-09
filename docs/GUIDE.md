@@ -15,6 +15,7 @@ This builds Kolom from source, creates a local self-signed "Kolom Local Signing"
 ```sh
 ./scripts/test.sh                      # dependency-free core checks
 ./scripts/build-app.sh                 # build build/Kolom.app only
+./scripts/smoke-test.sh                # open the built app and drive its panels (CI runs it too)
 python3 -I scripts/live-check.py       # read-only health check of a running session
 ```
 
@@ -180,6 +181,10 @@ Once a day (first a minute after launch) Kolom asks `api.github.com` for the lat
 The command shelf width slider follows the assigned display’s usable width, instead of stopping at 1,200 points. Rail context menus include **Column width → Fill display**. Edge dragging changes the whole shared column (and linked grid columns) with a 10,000-point safety bound instead of the old 1,600-point cap. Native apps can still enforce their own size constraints.
 
 The bottom rail shows CPU, MEM, NET, and GPU. CPU is system utilization across cores, sampled from Mach tick deltas. MEM is an approximation using active + wired + compressed physical pages, excluding inactive cached pages; it is not memory pressure or an exact Activity Monitor match. NET is received + sent bytes per second across active `en` interfaces, displayed as K/M decimal bytes per second. VPN/tunnel interfaces are excluded to avoid double-counting. All rails share one two-second utility-queue sampler. No telemetry is uploaded. Click for definitions. GPU (since 0.2.3) is the busiest GPU's utilization as the IOKit registry reports it; a Mac that reports none shows a dash.
+
+## Smoke test (0.2.11)
+
+`./scripts/smoke-test.sh` builds `build/Kolom-smoke.app` and runs it with `--smoke-test <folder>`. In that mode Kolom uses a storage folder inside `<folder>`, skips the single-instance lock, the rename migration, the launch dialogs, update checks and shortcut registration, and refuses to manage windows (`enable()` and automatic start return at once), so it can run beside a working copy. It then opens Performance and waits for grouped process rows that include itself; opens the Disk Map on a small folder it makes and checks the scan (sizes, a `target` beside `Cargo.toml` recognised as build output); marks one folder, has the mapped folder itself refused, deletes the mark permanently and checks the disk and the map; closes the map and checks its panel and scan are gone; opens and closes the guide; and quits on SIGTERM, as the installer asks a running Kolom to. Each panel is rendered to a PNG and must draw more than a few colours. `<folder>/smoke-report.json` lists every step with its time; the script fails on a failed step, a non-zero exit or a run over 150 s. CI runs it after the build and keeps the folder as the `smoke` artifact. Rails, shortcuts and window management need Accessibility permission, which CI cannot grant; they stay covered by the core checks and live checks.
 
 ## Windows that come back (0.2.10)
 

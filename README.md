@@ -153,6 +153,7 @@ Found a bug? [Open an issue](https://github.com/ckluis/kolom/issues/new?template
 ```sh
 ./scripts/test.sh                  # core checks; no permissions needed
 ./scripts/build-app.sh             # builds build/Kolom.app
+./scripts/smoke-test.sh            # opens the built app and drives its panels; safe beside a running Kolom
 python3 -I scripts/live-check.py   # read-only health check of a running session
 ./kolomctl help                    # the CLI, against build/Kolom.app
 ```

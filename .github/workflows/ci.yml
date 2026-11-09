@@ -27,3 +27,14 @@ jobs:
         run: ./scripts/test.sh
       - name: Build the app (ad hoc signed)
         run: ./scripts/build-app.sh
+      # Opens the built app without managing windows and drives Performance, the
+      # Disk Map and the guide, then quits on SIGTERM.
+      - name: Smoke test the built app
+        run: ./scripts/smoke-test.sh
+      - name: Keep the smoke report and renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke
+          path: build/smoke
+          if-no-files-found: ignore
