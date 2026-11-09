@@ -71,6 +71,26 @@ public enum UpdateCheck {
         return "cd \(shellQuoted(checkout)) && \(steps)"
     }
 
+    /// The script "Update now" runs in Terminal.
+    public static func terminalScript(checkout: String) -> String {
+        """
+        #!/bin/zsh
+        # Written by Kolom for "Update now". Safe to delete.
+        echo "Updating Kolom in \(shellQuoted(checkout))…"
+        echo
+        \(command(checkout: checkout))
+        result=$?
+        echo
+        if [[ $result -eq 0 ]]; then
+          echo "Kolom is updated. You can close this window."
+        else
+          echo "The update stopped (exit $result). The output above says why."
+          pgrep -xq Kolom || open -a Kolom
+        fi
+
+        """
+    }
+
     public static func shellQuoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

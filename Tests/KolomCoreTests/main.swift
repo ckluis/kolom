@@ -1262,3 +1262,14 @@ do {
     XCTAssertEqual(processGPUShare(previous: 0, current: 1_000_000_000, elapsed: 2)!, 0.5)
     print("PASS: performance groups processes by responsible app, session and kind, with GPU shares")
 }
+
+do {
+    let script = UpdateCheck.terminalScript(checkout: "/Users/me/Kolom's code")
+    XCTAssertTrue(script.hasPrefix("#!/bin/zsh\n"))
+    XCTAssertTrue(
+        script.contains(
+            "cd '/Users/me/Kolom'\\''s code' && git pull --ff-only && ./scripts/install.sh --quit-running\nresult=$?"))
+    // A failed update reopens the installed Kolom so windows are not left unmanaged.
+    XCTAssertTrue(script.contains("pgrep -xq Kolom || open -a Kolom"))
+    print("PASS: Update now runs the quoted update command and reopens Kolom if it stops")
+}

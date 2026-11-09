@@ -55,14 +55,26 @@ final class UpdateChecker {
         check()
     }
 
-    /// `completion` gets a sentence for the status line.
-    func check(completion: ((String) -> Void)? = nil) {
+    enum Outcome {
+        case available(AvailableUpdate)
+        case upToDate
+        case failed(String)
+        var message: String {
+            switch self {
+            case .available(let update): return "Kolom \(update.version) is available"
+            case .upToDate: return "Kolom \(BuildInfo.version) is up to date"
+            case .failed(let reason): return "Couldn’t check for updates · \(reason)"
+            }
+        }
+    }
+
+    func check(completion: ((Outcome) -> Void)? = nil) {
         guard ReleaseVersion(BuildInfo.version) != nil else {
-            completion?("Update checks need a built copy of Kolom (this one is \(BuildInfo.version))")
+            completion?(.failed("this copy of Kolom (\(BuildInfo.version)) was not built by build-app.sh"))
             return
         }
         guard !inFlight else {
-            completion?("Already checking for updates")
+            completion?(.failed("a check is already running"))
             return
         }
         inFlight = true
@@ -80,23 +92,22 @@ final class UpdateChecker {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.inFlight = false
-                let message: String
+                let outcome: Outcome
                 if let data, status == 200 {
                     self.record(UpdateCheck.update(fromLatestRelease: data, current: BuildInfo.version))
-                    message =
-                        self.available.map { "Kolom \($0.version) is available" }
-                        ?? "Kolom \(BuildInfo.version) is up to date"
+                    outcome = self.available.map(Outcome.available) ?? .upToDate
                 } else if status == 404 {
                     // No release published yet.
                     self.record(nil)
-                    message = "Kolom \(BuildInfo.version) is up to date"
+                    outcome = .upToDate
                 } else {
                     // Offline or rate-limited: try again on the next due check.
-                    self.lastError = error?.localizedDescription ?? "GitHub answered \(status.map(String.init) ?? "nothing")"
-                    message = "Couldn’t check for updates · \(self.lastError!)"
+                    let reason = error?.localizedDescription ?? "GitHub answered \(status.map(String.init) ?? "nothing")"
+                    self.lastError = reason
+                    outcome = .failed(reason)
                     self.changed?()
                 }
-                completion?(message)
+                completion?(outcome)
             }
         }.resume()
     }
@@ -129,6 +140,24 @@ final class UpdateChecker {
     func copyCommand() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
+    }
+
+    /// Kolom can run the update itself only when it knows its checkout.
+    var canUpdateInTerminal: Bool { checkout != nil }
+
+    /// Opens the update command in Terminal (or whatever opens .command files), from
+    /// a script Kolom writes for the purpose. The installer quits Kolom (windows are
+    /// restored) and opens the new build; if it stops partway, the script reopens
+    /// whichever Kolom is installed so windows are not left unmanaged.
+    func updateInTerminal() throws {
+        guard let checkout else { throw CocoaError(.fileNoSuchFile) }
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Kolom", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let script = folder.appendingPathComponent("update.command")
+        try UpdateCheck.terminalScript(checkout: checkout).write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        guard NSWorkspace.shared.open(script) else { throw CocoaError(.fileReadNoPermission) }
     }
 
     /// For live-state.json, so kolom_state tells agents an update exists.

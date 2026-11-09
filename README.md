@@ -47,7 +47,7 @@ git clone https://github.com/ckluis/kolom.git && cd kolom
 ./scripts/install.sh
 ```
 
-Then turn on Kolom in **System Settings → Privacy & Security → Accessibility**. Kolom opens its built-in guide the first time it runs, and the **?** in any rail brings it back. Kolom checks GitHub once a day for a newer release and says so in its menu bar menu; **Copy update command** gives you the one line to paste in Terminal. To update by hand, run `git pull --ff-only && ./scripts/install.sh --quit-running` in your checkout.
+Then turn on Kolom in **System Settings → Privacy & Security → Accessibility**. Kolom opens its built-in guide the first time it runs, and the **?** in any rail brings it back. Kolom checks GitHub once a day for a newer release; a dot on its menu bar icon says one is waiting, and **Update now…** in its menu runs the update in Terminal (or **Copy update command** gives you the one line to paste). To update by hand, run `git pull --ff-only && ./scripts/install.sh --quit-running` in your checkout.
 
 There is no notarized download yet. The installer signs your build with a local certificate it creates, so the permission survives updates.
 

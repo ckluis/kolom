@@ -1,3 +1,9 @@
+## 0.2.4 — 2026-11-09
+
+- **Check for updates now** answers. The menu closed before GitHub replied and the result went to a status line inside it, so the check seemed to do nothing. It now answers in a dialog: up to date, couldn't check (and why), or a newer version with **Update Now**, **Copy Update Command** and **What's New**.
+- A dot on the menu bar icon says an update is waiting, so a daily check that finds one is seen without opening the menu.
+- **Update now…** runs the update in Terminal instead of asking you to paste it: Kolom writes the update command to `update.command` in its Application Support folder and opens it. The installer quits Kolom (windows are restored), builds, installs and opens the new version; if the update stops partway, the script reopens the installed Kolom. Offered only when the build knows its checkout.
+
 ## 0.2.3 — 2026-11-09
 
 - Performance groups every process under the app responsible for it, as Activity Monitor does, and unfolds in three levels. A terminal's shells and what runs in them now sit under the terminal (cmux: one row, not 40 loose `zsh` and `node` rows); Safari's Web Content processes sit under Safari. Unfold an app for its main process and its sessions, each named by shell and folder (`zsh · kolom`, with what it runs), then a session for its process tree with PIDs and working directories. Same-named processes are gathered (**Web Content · 10 processes**; macOS does not say which tab each one is). macOS background services share one **macOS** row. The filter also matches folders and PIDs, and **Fold all** closes everything.

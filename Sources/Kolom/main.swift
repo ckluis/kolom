@@ -74,7 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             [weak self] _ in self?.syncAppearance()
         }
         model.layoutChanged = { [weak self] in self?.syncPanels() }
-        model.updates.changed = { [weak self] in self?.model.writeLiveState() }
+        model.updates.changed = { [weak self] in
+            self?.model.writeLiveState()
+            self?.refreshStatusIcon()
+        }
         model.updates.start()
         hotkeys.action = { [weak self] id in
             guard let self, self.model.acting, !self.model.agentBusy, self.palette == nil else { return }
@@ -120,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 "Gesture capture is unavailable. Use rail arrows or Option Left/Right; check Kolom’s window-control permission."
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "Kolom")
+        refreshStatusIcon()
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked)
         permissionObserver = model.$permissionGranted.removeDuplicates().receive(on: RunLoop.main).sink {
@@ -306,9 +309,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         model.updates.copyCommand()
         model.status = "Update command copied · paste it in Terminal"
     }
+    @objc func updateNow() {
+        do {
+            try model.updates.updateInTerminal()
+            model.status = "Updating in Terminal · Kolom restarts when it is done"
+        } catch {
+            model.updates.copyCommand()
+            let alert = NSAlert()
+            alert.messageText = "Kolom couldn’t open Terminal"
+            alert.informativeText =
+                "The update command is copied instead. Paste it in Terminal:\n\n\(model.updates.command)"
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+    /// The menu has closed by the time GitHub answers, so a check you asked for
+    /// answers in a dialog.
     @objc func checkForUpdates() {
         model.status = "Checking for updates…"
-        model.updates.check { [weak self] message in self?.model.status = message }
+        model.updates.check { [weak self] outcome in
+            guard let self else { return }
+            self.model.status = outcome.message
+            let alert = NSAlert()
+            alert.messageText = outcome.message
+            switch outcome {
+            case .available:
+                alert.informativeText =
+                    "You have Kolom \(BuildInfo.version). "
+                    + (self.model.updates.canUpdateInTerminal
+                        ? "Update now runs the update in Terminal: Kolom quits (your windows are restored), the new version is built and installed from your checkout, and it opens again."
+                        : "Paste the update command in Terminal, in your Kolom checkout: Kolom quits (your windows are restored), and the new version is built, installed and opened.")
+                if self.model.updates.canUpdateInTerminal { alert.addButton(withTitle: "Update Now") }
+                alert.addButton(withTitle: "Copy Update Command")
+                alert.addButton(withTitle: "What’s New")
+                alert.addButton(withTitle: "Later")
+                NSApp.activate(ignoringOtherApps: true)
+                let response = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+                let actions: [() -> Void] =
+                    (self.model.updates.canUpdateInTerminal ? [self.updateNow] : [])
+                    + [self.copyUpdateCommand, { self.model.updates.openReleaseNotes() }]
+                if response >= 0, response < actions.count { actions[response]() }
+            case .upToDate:
+                alert.informativeText = "This is the latest release on GitHub."
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            case .failed(let reason):
+                alert.messageText = "Couldn’t check for updates"
+                alert.informativeText = "\(reason). Kolom tries again later; nothing was changed."
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+    }
+    /// The menu bar icon carries a dot while an update is waiting.
+    func refreshStatusIcon() {
+        guard let button = statusItem?.button,
+            let base = NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "Kolom")
+        else { return }
+        guard let update = model.updates.available else {
+            button.image = base
+            button.toolTip = "Kolom"
+            return
+        }
+        let size = base.size
+        let badged = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect)
+            let dot = min(rect.width, rect.height) * 0.42
+            let circle = NSRect(x: rect.maxX - dot, y: rect.maxY - dot, width: dot, height: dot)
+            // Clear a ring around the dot so it reads against the symbol.
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(ovalIn: circle.insetBy(dx: -1.2, dy: -1.2)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: circle).fill()
+            return true
+        }
+        badged.isTemplate = true
+        badged.accessibilityDescription = "Kolom, update \(update.version) available"
+        button.image = badged
+        button.toolTip = "Kolom \(update.version) is available"
     }
     @objc func toggleAutomaticUpdates() { model.updates.automatic.toggle() }
     @objc func selectTheme(_ sender: NSMenuItem) {
@@ -330,6 +409,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             nil, enabled: false)
         if let update = model.updates.available {
             item("Kolom \(update.version) is available · What’s new…", #selector(openReleaseNotes))
+            if model.updates.canUpdateInTerminal {
+                item("Update now…", #selector(updateNow)).toolTip =
+                    "Runs the update in Terminal: Kolom quits (your windows are restored), the new version is built and installed from your checkout, and it opens again."
+            }
             item("Copy update command", #selector(copyUpdateCommand)).toolTip =
                 "Paste in Terminal: \(model.updates.command)\nKolom quits first (your windows are restored), then the new build opens."
         }
