@@ -169,11 +169,11 @@ While management runs, a second instance of the same signed executable watches t
 
 Opening or reopening Kolom starts window management automatically once this build has window-control access. If an interrupted session or unreachable windows are detected, recovery runs first and management starts after verified recovery. Failed recovery stays paused with its records intact. Explicit Pause keeps the current session paused until you enable it or open Kolom again. No login-item registration is implied.
 
-## Versions and updates (0.2.2)
+## Versions and updates (0.2.2; Update now 0.2.4)
 
 Every build shows its version and commit in the menu bar menu (`Kolom · 0.2.2 (abc1234)`, `-dirty` when built with uncommitted changes); `VERSION` holds the release and every pull request raises it. Each version merged to `main` is published as a GitHub release with its changelog section as notes.
 
-Once a day (first a minute after launch) Kolom asks `api.github.com` for the latest release. When it is newer, the menu shows **Kolom x.y.z is available · What's new…** and **Copy update command**, which copies `cd <your checkout> && git pull --ff-only && ./scripts/install.sh --quit-running`. The installer quits Kolom as its Quit item does (windows are restored), builds, installs and opens the new copy. `kolom_state` reports the same under `update`. **Check for updates now** checks at once; **Check for updates automatically** turns the daily check off. Kolom never downloads or installs anything by itself.
+Once a day (first a minute after launch) Kolom asks `api.github.com` for the latest release. When it is newer, the menu bar icon gets a dot and the menu shows **Kolom x.y.z is available · What's new…**, **Update now…** and **Copy update command**. **Update now…** writes the update command to `~/Library/Application Support/Kolom/update.command` and opens it in Terminal, so you see it run; if it stops partway, it reopens the installed Kolom. **Copy update command** copies `cd <your checkout> && git pull --ff-only && ./scripts/install.sh --quit-running`. The installer quits Kolom as its Quit item does (windows are restored), builds, installs and opens the new copy. `kolom_state` reports the same under `update`. **Check for updates now** checks at once and answers in a dialog (with **Update Now** when there is one); **Check for updates automatically** turns the daily check off. Kolom never downloads or installs anything by itself.
 
 ## Width and resource rail (0.1.20)
 

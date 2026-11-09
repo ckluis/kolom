@@ -10,7 +10,7 @@ Use [GitHub private vulnerability reporting](https://github.com/ckluis/kolom/sec
 
 - Moves and resizes windows with the public Accessibility API. Reads window lists; never captures screen contents.
 - Asks for Automation (Apple Events) only to open Terminal windows for grids you request. It never sends shell command text.
-- Has no telemetry and no listening sockets. Its only network request is a daily HTTPS GET of `api.github.com/repos/ckluis/kolom/releases/latest` with a `Kolom/<version>` user agent and no cookies, to say when a newer release exists; nothing about the Mac or its windows is sent. **Check for updates automatically** in the menu bar menu turns it off. Kolom never downloads or installs anything itself: updating is a command you run.
+- Has no telemetry and no listening sockets. Its only network request is a daily HTTPS GET of `api.github.com/repos/ckluis/kolom/releases/latest` with a `Kolom/<version>` user agent and no cookies, to say when a newer release exists; nothing about the Mac or its windows is sent. **Check for updates automatically** in the menu bar menu turns it off. Kolom never downloads or installs anything in the background: updating is a command you run, either pasted or by choosing **Update now…**, which writes that command to `update.command` in the folder below and opens it in Terminal, where you watch it run (`git pull --ff-only` from your own checkout, then a local build).
 - Stores layout, recovery records and settings in `~/Library/Application Support/Kolom` (mode 0700).
 
 ## The local agent channel
