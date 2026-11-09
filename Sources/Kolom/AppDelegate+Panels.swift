@@ -114,7 +114,7 @@ extension AppDelegate {
             diskMapModel?.close()
             diskMapPanel?.close()
             diskMapPanel = nil
-            let map = DiskMapModel(target: target)
+            let map = DiskMapModel(target: target, storage: model.storage)
             map.requestClose = { [weak model] in model?.closeDiskMap() }
             diskMapModel = map
             let panel = DiskMapPanel(

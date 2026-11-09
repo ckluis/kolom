@@ -34,6 +34,23 @@ enum DiskMapPalette {
     }
 
     static func background(dark: Bool) -> NSColor { dark ? NSColor(white: 0.11, alpha: 1) : NSColor(white: 0.97, alpha: 1) }
+
+    /// The Age view: warm for recent writes, cooling to grey for old ones.
+    static func age(_ age: DiskAge, level: Int, dark: Bool) -> NSColor {
+        let (h, s, b): (CGFloat, CGFloat, CGFloat) = {
+            switch age {
+            case .week: return (0.08, 0.55, 0.85)
+            case .month: return (0.11, 0.42, 0.80)
+            case .quarter: return (0.16, 0.30, 0.74)
+            case .year: return (0.55, 0.16, 0.66)
+            case .older: return (0.60, 0.06, 0.58)
+            case .unknown: return (0.0, 0.0, 0.62)
+            }
+        }()
+        let base = NSColor(hue: h, saturation: s, brightness: dark ? b * 0.62 : b, alpha: 1)
+        let lift = min(0.4, CGFloat(level) * 0.11)
+        return base.blended(withFraction: lift, of: dark ? NSColor(white: 0.62, alpha: 1) : .white) ?? base
+    }
 }
 
 /// One drawn rectangle: a node at a nesting level.
@@ -52,11 +69,14 @@ enum TreemapLayout {
     static let band: CGFloat = 17
     static let slimBand: CGFloat = 13
 
-    static func tiles(for focus: DiskNode, in bounds: CGRect, depth: Int = 3) -> [TreemapTile] {
+    static func tiles(
+        for focus: DiskNode, in bounds: CGRect, depth: Int = 3, measure: DiskMeasure = .size, showHidden: Bool = true
+    ) -> [TreemapTile] {
         var tiles: [TreemapTile] = []
         func place(_ nodes: [DiskNode], in rect: CGRect, level: Int) {
-            let visible = nodes.filter { $0.size > 0 }
-            let rects = Treemap.layout(visible.map { Double($0.size) }, in: rect)
+            let visible = nodes.filter { measure.value($0) > 0 && (showHidden || !$0.isHidden) }
+                .sorted { measure.value($0) > measure.value($1) }
+            let rects = Treemap.layout(visible.map { measure.value($0) }, in: rect)
             for (node, frame) in zip(visible, rects) {
                 let inset = frame.insetBy(dx: gap / 2, dy: gap / 2)
                 guard inset.width >= 2, inset.height >= 2 else { continue }
@@ -134,7 +154,9 @@ final class TreemapView: NSView {
         }
         let key = (ObjectIdentifier(focus), bounds.size)
         if let laidOutFor, laidOutFor.0 == key.0, laidOutFor.1 == key.1 { return }
-        tiles = TreemapLayout.tiles(for: focus, in: bounds.insetBy(dx: 1, dy: 1), depth: model?.depth ?? 3)
+        tiles = TreemapLayout.tiles(
+            for: focus, in: bounds.insetBy(dx: 1, dy: 1), depth: model?.depth ?? 3, measure: model?.measure ?? .size,
+            showHidden: model?.showHidden ?? true)
         laidOutFor = key
     }
 
@@ -195,12 +217,21 @@ final class TreemapView: NSView {
 
     private func draw(_ tile: TreemapTile, in context: CGContext) {
         let node = tile.node
-        let fill = node.role == .smallerFiles
-            ? DiskMapPalette.fill(node.kind, level: tile.level + 1, dark: dark).withAlphaComponent(0.7)
-            : DiskMapPalette.fill(node.kind, level: tile.level, dark: dark)
+        let age = model?.measure == .age
+        var fill =
+            age
+            ? DiskMapPalette.age(DiskAge.of(node.modified), level: tile.level, dark: dark)
+            : node.role == .smallerFiles
+                ? DiskMapPalette.fill(node.kind, level: tile.level + 1, dark: dark).withAlphaComponent(0.7)
+                : DiskMapPalette.fill(node.kind, level: tile.level, dark: dark)
+        // A filter keeps the colour of matches and the folders that hold them.
+        let dimmed = model.map { !$0.filter.isEmpty && !$0.matches.contains(ObjectIdentifier(node)) } ?? false
+        if dimmed {
+            fill = fill.blended(withFraction: 0.78, of: DiskMapPalette.background(dark: dark)) ?? fill
+        }
         fill.setFill()
         tile.rect.fill()
-        if node.reclaim != nil { hatch(tile.rect, in: context) }
+        if node.reclaim != nil, !dimmed { hatch(tile.rect, in: context) }
         if let marks = model?.marks, marks.covers(node) {
             DiskMapPalette.danger.withAlphaComponent(marks.isMarked(node) ? 0.62 : 0.30).setFill()
             tile.rect.fill(using: .sourceOver)
@@ -216,6 +247,12 @@ final class TreemapView: NSView {
         } else if tile.rect.width > 46, tile.rect.height > 15 {
             label(node, in: tile.rect.insetBy(dx: 5, dy: 3), level: tile.level, centered: tile.rect.height > 34)
         }
+    }
+
+    static func count(_ files: Int) -> String {
+        if files >= 1_000_000 { return String(format: "%.1fM files", Double(files) / 1_000_000) }
+        if files >= 10_000 { return "\(files / 1000)K files" }
+        return files == 1 ? "1 file" : "\(files.formatted()) files"
     }
 
     private func hatch(_ rect: CGRect, in context: CGContext) {
@@ -235,7 +272,8 @@ final class TreemapView: NSView {
     }
 
     private func label(_ node: DiskNode, in rect: CGRect, level: Int, centered: Bool = false) {
-        let size = StorageFormat.bytes(node.size)
+        // The number the area stands for: files in the Files view, bytes otherwise.
+        let size = model?.measure == .files ? Self.count(node.files) : StorageFormat.bytes(node.size)
         let nameFont = NSFont.systemFont(ofSize: level == 0 ? 11.5 : 10, weight: level == 0 ? .semibold : .medium)
         let sizeFont = NSFont.monospacedDigitSystemFont(ofSize: level == 0 ? 10.5 : 9.5, weight: .regular)
         let ink = dark ? NSColor(white: 1, alpha: 0.9) : NSColor(white: 0.08, alpha: 0.88)
@@ -308,6 +346,32 @@ final class TreemapView: NSView {
         }
     }
 
+    /// Scrolling over a folder goes into it (toward the pointer), scrolling back goes up:
+    /// one step per gesture, with a short pause so momentum does not skip levels.
+    private var scrollAccumulated: CGFloat = 0
+    private var scrollPausedUntil = Date.distantPast
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let model, model.root != nil else { return super.scrollWheel(with: event) }
+        if event.phase == .began || event.phase == .ended { scrollAccumulated = 0 }
+        guard Date() > scrollPausedUntil, event.momentumPhase == [] else { return }
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
+        scrollAccumulated += delta
+        guard abs(scrollAccumulated) > 36 else { return }
+        let inward = scrollAccumulated > 0
+        scrollAccumulated = 0
+        scrollPausedUntil = Date().addingTimeInterval(0.45)
+        if inward {
+            let point = convert(event.locationInWindow, from: nil)
+            // The folder at this level under the pointer.
+            var hit = node(at: point)
+            while let current = hit, let parent = current.parent, parent !== model.focus { hit = parent }
+            if let folder = hit, folder.isFolder { model.enter(folder) }
+        } else {
+            model.goUp()
+        }
+    }
+
     override func mouseExited(with event: NSEvent) {
         model?.hover = nil
         needsDisplay = true
@@ -342,7 +406,9 @@ final class TreemapView: NSView {
         switch event.keyCode {
         case 36, 76: model.enter(model.selection ?? model.hover)  // return, enter
         case 51, 53:  // delete, escape
-            if model.isScanning, event.keyCode == 53 {
+            if event.keyCode == 53, !model.filter.isEmpty {
+                model.filter = ""
+            } else if model.isScanning, event.keyCode == 53 {
                 model.stop()
             } else if event.keyCode == 53, model.focus?.parent == nil {
                 model.requestClose?()
@@ -360,6 +426,12 @@ final class TreemapView: NSView {
             case "c": if !model.marks.isEmpty { model.reviewing = true }
             case "[" where command: model.back()
             case "]" where command: model.forward()
+            case "[": model.depth = max(1, model.depth - 1)
+            case "]": model.depth = min(6, model.depth + 1)
+            case "/": model.filterFocus += 1
+            case "t": model.measure = DiskMeasure.allCases[(DiskMeasure.allCases.firstIndex(of: model.measure)! + 1) % 3]
+            case ".": model.showHidden.toggle()
+            case "?": model.showingHelp = true
             case "r" where command: model.rescan()
             case "o": if let node = model.selection { model.reveal(node) }
             default: super.keyDown(with: event)

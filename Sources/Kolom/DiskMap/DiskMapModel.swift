@@ -23,14 +23,36 @@ final class DiskMapModel: ObservableObject {
     @Published private(set) var capacity: UInt64?
     private(set) var overview: [(name: String, bytes: UInt64)] = []
     @Published private(set) var marks = DiskMarks()
-    @Published var reviewing = false
+    @Published var reviewing = false {
+        didSet { if reviewing { checkGit() } }
+    }
     /// A sentence about the last mark refused or removal finished; cleared on the next action.
     @Published var notice: String?
     @Published private(set) var removing: (done: Int, total: Int)?
     var policy: DiskRemovalPolicy {
         DiskRemovalPolicy(home: FileManager.default.homeDirectoryForCurrentUser.path, scanRoot: target.path)
     }
-    let depth = 3
+    /// Levels drawn at once.
+    @Published var depth = 3 { didSet { view?.invalidateLayout() } }
+    /// What tile areas measure; Age colours by last write.
+    @Published var measure = DiskMeasure.size { didSet { view?.invalidateLayout() } }
+    /// Dot-folders and dot-files.
+    @Published var showHidden = true { didSet { view?.invalidateLayout() } }
+    /// Names to light up; the rest dims.
+    @Published var filter = "" {
+        didSet {
+            matches = root.map { DiskFilter.matches(in: $0, query: filter) } ?? []
+            view?.needsDisplay = true
+        }
+    }
+    private(set) var matches: Set<ObjectIdentifier> = []
+    /// Bumped by `/` to put the cursor in the filter field.
+    @Published var filterFocus = 0
+    @Published var showingHelp = false
+    /// What git says about each marked checkout, for the review.
+    @Published private(set) var gitNotes: [String: String] = [:]
+    /// Where marks are kept between openings; nil keeps them only while open.
+    let storage: URL?
     weak var view: TreemapView?
     /// Closes the Disk Map panel (× or Escape at the top).
     var requestClose: (() -> Void)?
@@ -39,8 +61,9 @@ final class DiskMapModel: ObservableObject {
     private var backStack: [DiskNode] = []
     private var forwardStack: [DiskNode] = []
 
-    init(target: Target) {
+    init(target: Target, storage: URL? = nil) {
         self.target = target
+        self.storage = storage
         refreshFreeSpace()
     }
 
@@ -85,6 +108,8 @@ final class DiskMapModel: ObservableObject {
                 if finished {
                     self.root = scan.root
                     self.focus = scan.root
+                    if !self.filter.isEmpty { self.matches = DiskFilter.matches(in: scan.root, query: self.filter) }
+                    self.restoreMarks()
                     self.view?.invalidateLayout()
                 } else {
                     self.stopped = true
@@ -252,17 +277,94 @@ final class DiskMapModel: ObservableObject {
         case nil:
             break
         }
+        saveMarks()
         view?.needsDisplay = true
     }
 
     func unmark(_ node: DiskNode) {
         marks.unmark(node)
+        saveMarks()
         view?.needsDisplay = true
     }
 
     func clearMarks() {
         marks.removeAll()
+        saveMarks()
         view?.needsDisplay = true
+    }
+
+    // MARK: Marks kept between openings
+
+    private var marksURL: URL? { storage?.appendingPathComponent("disk-map-marks.json") }
+
+    /// Marks are kept per mapped folder, as paths, so closing the map or Kolom does
+    /// not lose a half-made selection.
+    func saveMarks() {
+        guard let url = marksURL else { return }
+        var all = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:]
+        let paths = marks.nodes.map(\.path)
+        all[target.path] = paths.isEmpty ? nil : paths
+        if let data = try? JSONEncoder().encode(all) { try? data.write(to: url, options: .atomic) }
+    }
+
+    /// After a scan, the marks kept for this folder come back where the paths still
+    /// exist, checked against the removal rules again.
+    func restoreMarks() {
+        guard let url = marksURL, let root,
+            let all = try? JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: url)),
+            let paths = all[target.path], !paths.isEmpty
+        else { return }
+        var restored = 0
+        for path in paths {
+            if let node = root.find(path: path), marks.mark(node, policy: policy) == nil { restored += 1 }
+        }
+        saveMarks()
+        if restored > 0 {
+            notice = "\(restored) mark\(restored == 1 ? "" : "s") kept from last time · \(StorageFormat.bytes(marks.bytes))"
+        }
+        view?.needsDisplay = true
+    }
+
+    // MARK: Git, before removing a checkout
+
+    /// For each marked folder that is a git checkout: uncommitted changes, commits
+    /// on no remote, stashes. Run when the review opens, off the main thread.
+    func checkGit() {
+        let folders = marks.nodes.filter(\.isFolder).map(\.path)
+        gitNotes = [:]
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var notes: [String: String] = [:]
+            for path in folders where FileManager.default.fileExists(atPath: path + "/.git") {
+                notes[path] = Self.gitSummary(path)
+            }
+            DispatchQueue.main.async { self?.gitNotes = notes }
+        }
+    }
+
+    static func gitSummary(_ path: String) -> String {
+        func git(_ arguments: [String]) -> String? {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            task.arguments = ["-C", path] + arguments
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.standardError = FileHandle.nullDevice
+            guard (try? task.run()) != nil else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            return task.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+        }
+        func lines(_ text: String?) -> Int { text.map { $0.split(separator: "\n").count } ?? 0 }
+        guard let status = git(["status", "--porcelain"]) else { return "git could not read this checkout" }
+        let changes = lines(status)
+        let unpushed = lines(git(["log", "--branches", "--not", "--remotes", "--oneline"]))
+        let stashes = lines(git(["stash", "list"]))
+        let parts = [
+            changes > 0 ? "\(changes) uncommitted change\(changes == 1 ? "" : "s")" : nil,
+            unpushed > 0 ? "\(unpushed) commit\(unpushed == 1 ? "" : "s") on no remote" : nil,
+            stashes > 0 ? "\(stashes) stash\(stashes == 1 ? "" : "es")" : nil,
+        ].compactMap { $0 }
+        return parts.isEmpty ? "git: clean, everything pushed" : "git: " + parts.joined(separator: ", ")
     }
 
     /// Free space once the marks are gone (all on the scanned disk; the scan stays on one).
@@ -305,6 +407,7 @@ final class DiskMapModel: ObservableObject {
                     let node = items[index]
                     node.parent?.remove(node)
                     self.marks.unmark(node)
+                    self.saveMarks()
                     if self.selection === node { self.selection = nil }
                     if let focus = self.focus, focus.lineage.contains(where: { $0 === node }) {
                         self.focus = node.parent
