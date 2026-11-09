@@ -162,4 +162,36 @@ extension KolomController {
             try? data.write(to: storage.appendingPathComponent("geometry-feedback.json"), options: .atomic)
         }
     }
+    var traceURL: URL { storage.appendingPathComponent("display-trace.json") }
+    /// Records a display or Space event (kept: the last 400, written within a second).
+    func record(_ event: String, _ detail: [String: Any] = [:]) {
+        var entry = detail
+        entry["t"] = (Date().timeIntervalSince1970 * 1000).rounded() / 1000
+        entry["event"] = event
+        trace.append(entry)
+        if trace.count > 400 { trace.removeFirst(trace.count - 400) }
+        if ["reconfig", "space", "screens", "staircase", "suspend", "resume"].contains(event) {
+            traceDetailUntil = Date().addingTimeInterval(15)
+        }
+        guard traceWrite == nil else { return }
+        let task = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.traceWrite = nil
+            if let data = try? JSONSerialization.data(withJSONObject: self.trace, options: [.sortedKeys]) {
+                try? data.write(to: self.traceURL, options: .atomic)
+            }
+        }
+        traceWrite = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: task)
+    }
+    func recordReconfiguration(_ display: CGDirectDisplayID, _ flags: UInt32) {
+        let names: [(UInt32, String)] = [
+            (1 << 0, "begin"), (1 << 1, "moved"), (1 << 2, "main"), (1 << 3, "mode"), (1 << 4, "added"),
+            (1 << 5, "removed"), (1 << 8, "enabled"), (1 << 9, "disabled"), (1 << 10, "mirror"),
+            (1 << 11, "unmirror"), (1 << 12, "shape"),
+        ]
+        record(
+            "reconfig",
+            ["display": Int(display), "flags": names.filter { flags & $0.0 != 0 }.map(\.1).joined(separator: ",")])
+    }
 }
