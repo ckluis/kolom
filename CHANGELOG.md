@@ -1,3 +1,8 @@
+## 0.2.11 — 2026-11-09
+
+- **App smoke test.** `./scripts/smoke-test.sh` opens the built app in a smoke mode that never manages windows and uses its own storage, then drives Performance (grouped rows that include itself), the Disk Map (scan, kinds, mark, a refused mark, permanent removal, close and release) and the guide, renders each panel and must see it drawn, and quits on SIGTERM. About 5 s; safe beside a running Kolom. CI runs it after every build and keeps the report and renders.
+- The Disk Map's kind rules no longer list `dev` twice (it is Code).
+
 ## 0.2.10 — 2026-11-09
 
 - Performance no longer costs most of a CPU core while open. Since 0.2.6 it ran Apple's `nettop` every two seconds for per-app network; `nettop` uses about 0.9 s of CPU per second it runs, so an open dashboard cost about 70% of one core (charged to `nettop`, not to Kolom). Per-app network is now measured when you click the NETWORK column header: for one minute, with a countdown, then it stops. Measured with the same harness: an open dashboard now costs about 4% of one core (was about 75%); the rail's readings alone about 0.2%.

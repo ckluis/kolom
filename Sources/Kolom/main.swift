@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if item.action == #selector(toggleIsolateDisplays) { item.state = model.isolateDisplays ? .on : .off }
         return true
     }
-    let model = KolomController()
+    let model = KolomController(storage: SmokeMode.storage)
+    var smokeTest: SmokeTest?
     let appearance = DesktopAppearance()
     var themeObserver: AnyCancellable?
     var permissionObserver: AnyCancellable?
@@ -87,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self?.model.writeLiveState()
             self?.refreshStatusIcon()
         }
-        model.updates.start()
+        if !SmokeMode.active { model.updates.start() }
         hotkeys.action = { [weak self] id in
             guard let self, self.model.acting, !self.model.agentBusy, self.palette == nil else { return }
             // The display under the pointer is the target for ordinal shortcuts.
@@ -137,10 +138,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem.button?.action = #selector(statusClicked)
         permissionObserver = model.$permissionGranted.removeDuplicates().receive(on: RunLoop.main).sink {
             [weak self] granted in
-            guard let self, granted, self.startWhenAuthorized else { return }
+            guard let self, granted, self.startWhenAuthorized, !SmokeMode.active else { return }
             self.startAutomatically()
         }
         _ = model.checkAccess()
+        // A smoke run drives the panels itself and never manages windows or asks anything.
+        if let output = SmokeMode.output {
+            startWhenAuthorized = false
+            smokeTest = SmokeTest(delegate: self, output: output)
+            smokeTest?.start()
+            return
+        }
         // First launch opens the guide, which walks through access itself.
         let firstLaunch = !UserDefaults.standard.bool(forKey: "guideShown")
         if firstLaunch {
@@ -177,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
     func startAutomatically() {
+        guard !SmokeMode.active else { return }
         startup.attempt(
             authorized: model.permissionGranted, enabled: model.enabled,
             needsRecovery: model.recoveryAvailable || model.hasUnreachableWindows(),
@@ -302,7 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     @objc func togglePerformance() { model.togglePerformance() }
     @objc func openDiskMap() {
-        let name = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? "Startup disk"
+        let name = (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]))?.volumeName
         DiskMapHost.open(path: "/", name: name ?? "Startup disk", startupDisk: true)
     }
     @objc func toggleGuide() { model.toggleGuide() }
@@ -1068,7 +1077,7 @@ final class WatchdogDelegate: NSObject, NSApplicationDelegate {
     }
 }
 let app = NSApplication.shared
-if !CommandLine.arguments.contains("--recovery-watchdog") { RenameMigration.run() }
+if !CommandLine.arguments.contains("--recovery-watchdog") && !SmokeMode.active { RenameMigration.run() }
 let kolomStorage = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("Kolom")
 let instanceLock = InstanceLock(storage: kolomStorage)
@@ -1146,7 +1155,9 @@ if let flag = CommandLine.arguments.firstIndex(of: "--recovery-watchdog"),
     // A second copy, or a watchdog still recovering the previous session, owns
     // the windows. Wait briefly for a recovery pass to finish.
     // An unusable lock file must not stop Kolom from starting or recovering.
-    guard instanceLock.acquire(timeout: 15) != .busy else {
+    // A smoke run uses its own storage and never manages windows, so it may run
+    // beside a working copy of Kolom.
+    guard SmokeMode.active || instanceLock.acquire(timeout: 15) != .busy else {
         app.setActivationPolicy(.accessory)
         let alert = NSAlert()
         alert.messageText = "Kolom is already running"

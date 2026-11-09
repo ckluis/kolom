@@ -233,7 +233,7 @@ public enum DiskClassifier {
             return .cache
         case "applications":
             return .apps
-        case "system", "usr", "bin", "sbin", "private", "cores", "dev":
+        case "system", "usr", "bin", "sbin", "private", "cores":
             return .system
         default:
             return name.hasSuffix(".app") ? .apps : nil

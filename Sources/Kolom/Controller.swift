@@ -231,6 +231,10 @@ final class KolomController: ObservableObject {
         status = "Kolom is paused · enable window management from the menu bar"
     }
     func enable() {
+        guard !SmokeMode.active else {
+            status = "Smoke test · window management is off"
+            return
+        }
         guard !restoring else {
             status = "Finishing window recovery before starting"
             return
