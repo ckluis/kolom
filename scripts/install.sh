@@ -2,7 +2,10 @@
 # Build Kolom from source, install it to /Applications (or ~/Applications) and
 # link kolomctl into ~/.local/bin. Safe to run again to update.
 #
-#   ./scripts/install.sh [--no-open] [--mcp]
+#   ./scripts/install.sh [--no-open] [--mcp] [--quit-running]
+#
+# --quit-running quits a running Kolom first, as its Quit menu item does (your
+# windows are restored), and waits for it and its recovery helper to exit.
 #
 # --mcp connects Kolom to Claude Code without asking (the installer asks
 # when run in a terminal and Claude Code is installed).
@@ -10,11 +13,12 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 cd "$PROJECT_DIR"
 fail() { print -u2 "install: $1"; exit 1 }
-OPEN=1 MCP=0
+OPEN=1 MCP=0 QUIT=0
 for arg in "$@"; do
   case "$arg" in
     --no-open) OPEN=0 ;;
     --mcp) MCP=1 ;;
+    --quit-running) QUIT=1 ;;
     *) fail "unknown option $arg" ;;
   esac
 done
@@ -23,8 +27,19 @@ done
 (( $(sw_vers -productVersion | cut -d. -f1) >= 13 )) || fail "Kolom needs macOS 13 or later."
 xcrun --find swift >/dev/null 2>&1 || fail "Swift is missing. Run: xcode-select --install"
 # Replacing a running bundle would strand the windows it manages.
+if (( QUIT )) && /usr/bin/pgrep -x Kolom >/dev/null; then
+  # The app, not its recovery helper: the helper restores windows if the app exits
+  # without doing so (copies before 0.2.2 do not handle SIGTERM) and then exits too.
+  for pid in $(/usr/bin/pgrep -x Kolom); do
+    [[ "$(/bin/ps -o args= -p "$pid")" == *--recovery-watchdog* ]] || kill -TERM "$pid" 2>/dev/null || true
+  done
+  print "Quitting Kolom (your windows are restored)…"
+  for i in {1..240}; do /usr/bin/pgrep -x Kolom >/dev/null || break; sleep 0.5; done
+  /usr/bin/pgrep -x Kolom >/dev/null &&
+    fail "Kolom is still running, perhaps asking about windows it could not restore. Answer it, then run this again."
+fi
 /usr/bin/pgrep -x Kolom >/dev/null &&
-  fail "Kolom is running. Quit it from its menu bar icon (your windows are restored), then run this again."
+  fail "Kolom is running. Quit it from its menu bar icon (your windows are restored), or run this with --quit-running."
 
 # A stable local identity keeps the Accessibility permission across updates.
 ./scripts/make-signing-identity.sh

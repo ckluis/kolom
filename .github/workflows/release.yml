@@ -1,0 +1,41 @@
+name: Release
+# Each version merged to main becomes a GitHub release: CI requires every pull
+# request to raise VERSION, and Kolom's daily update check reads the latest release.
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish VERSION as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=VERSION::VERSION must be x.y.z, not '$version'"
+            exit 1
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released"
+            exit 0
+          fi
+          # The notes are this version's CHANGELOG section.
+          awk -v heading="## $version" '
+            index($0, heading) == 1 && (length($0) == length(heading) || substr($0, length(heading) + 1, 1) == " ") { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [[ ! -s notes.md ]]; then echo "See [CHANGELOG.md](CHANGELOG.md)." > notes.md; fi
+          {
+            echo
+            echo "**Update:** choose **Copy update command** in Kolom's menu bar menu, or run \`git pull --ff-only && ./scripts/install.sh --quit-running\` in your checkout."
+          } >> notes.md
+          gh release create "v$version" --target "$GITHUB_SHA" --title "Kolom $version" --notes-file notes.md

@@ -47,7 +47,7 @@ git clone https://github.com/ckluis/kolom.git && cd kolom
 ./scripts/install.sh
 ```
 
-Then turn on Kolom in **System Settings → Privacy & Security → Accessibility**. Kolom opens its built-in guide the first time it runs, and the **?** in any rail brings it back. To update, run `git pull && ./scripts/install.sh`.
+Then turn on Kolom in **System Settings → Privacy & Security → Accessibility**. Kolom opens its built-in guide the first time it runs, and the **?** in any rail brings it back. Kolom checks GitHub once a day for a newer release and says so in its menu bar menu; **Copy update command** gives you the one line to paste in Terminal. To update by hand, run `git pull --ff-only && ./scripts/install.sh --quit-running` in your checkout.
 
 There is no notarized download yet. The installer signs your build with a local certificate it creates, so the permission survives updates.
 
@@ -130,7 +130,8 @@ There's no network listener and no shell execution. See [docs/AGENT-INTERFACE.md
 ## Privacy and safety
 
 - **Accessibility** moves and resizes windows. **Automation** is asked for only when you create a Terminal grid.
-- No screen capture, no telemetry, no network connections. Ask Kolom runs on your Mac.
+- No screen capture, no telemetry. Ask Kolom runs on your Mac.
+- One network request: a daily check of Kolom's latest GitHub release (an HTTPS GET with a `Kolom/<version>` user agent and no cookies). Nothing about your Mac or its windows is sent. Turn it off with **Check for updates automatically** in the menu bar menu.
 - Public macOS APIs only: no SIP changes, no code injection, no private WindowServer APIs.
 - Pause, quit, crash or lost permission: your windows stay reachable and go back where they were.
 
