@@ -48,10 +48,10 @@ struct PerformanceHelp: View {
                     section(
                         "Storage", "internaldrive",
                         [
-                            "The Storage panel shows the startup disk’s free space. Click it for every mounted disk, then open one to scan its folders, largest first.",
-                            "A scan reads sizes only, never contents, and runs only while that disk is open; leaving stops it and frees what it held. A full startup disk takes about a minute.",
+                            "The Storage panel shows the startup disk’s free space. Click it for every mounted disk; open one, or choose a folder, for the **Disk Map**: a treemap of what fills it.",
+                            "In the map, colour is the kind of data and a hatch is space that can be had back (caches, build output, logs). Double-click or Enter goes in, Backspace goes up, arrows and Tab move, ⌘[ ⌘] go back and forward.",
+                            "A scan reads sizes only, never contents, on one disk, and never opens cloud-only folders. It runs only while the map is open; closing it frees what it held.",
                             "macOS may ask before Kolom looks inside Desktop, Documents, Downloads or a removable disk. Folders it protects (Mail, Messages, other apps’ data) count as unreadable unless Kolom has Full Disk Access.",
-                            "**Not in the folders scanned** is what the disk reports as used but no folder accounts for: macOS itself, snapshots, purgeable space and unreadable folders.",
                         ])
                     section(
                         "Where the numbers come from", "lock.shield",
