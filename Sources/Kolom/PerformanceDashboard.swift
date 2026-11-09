@@ -330,8 +330,7 @@ struct PerformanceDashboard: View {
                 sortButton(.gpu).frame(width: 72, alignment: .trailing)
                     .help("Share of GPU time, from the GPU's own per-app accounting")
                 sortButton(.memory).frame(width: 92, alignment: .trailing)
-                sortButton(.network).frame(width: 84, alignment: .trailing)
-                    .help("Bytes sent and received per second, from Apple’s nettop while this dashboard is open")
+                networkHeader.frame(width: 84, alignment: .trailing)
             }.font(.system(size: 9, weight: .medium)).foregroundColor(.secondary).padding(.bottom, 9)
             if let notice {
                 HStack(spacing: 8) {
@@ -361,6 +360,31 @@ struct PerformanceDashboard: View {
                     ProgressView("Reading process counters…").controlSize(.small).font(.system(size: 11)).padding(24)
                 }
             }
+        }
+    }
+    /// Network per app is measured on request: nettop uses about one CPU core while
+    /// it runs, so a click measures for a minute, with the time left shown.
+    private var networkHeader: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let left = monitor.networkUntil.map { max(0, Int($0.timeIntervalSince(context.date).rounded())) }
+            Button {
+                if monitor.networkUntil == nil { monitor.measureNetwork() }
+                sort = .network
+            } label: {
+                HStack(spacing: 3) {
+                    Text("NETWORK")
+                    if let left {
+                        Text("\(left)s").monospacedDigit().foregroundColor(Color(red: 0.60, green: 0.40, blue: 0.68))
+                    } else {
+                        Image(systemName: "play.fill").font(.system(size: 6))
+                    }
+                    if sort == .network { Image(systemName: "arrow.down").font(.system(size: 8)) }
+                }
+            }.buttonStyle(.plain).foregroundColor(sort == .network ? .primary : .secondary)
+                .help(
+                    left == nil
+                        ? "Measure each app’s network traffic for a minute. Apple’s nettop, which does it, uses about one CPU core while it runs."
+                        : "Measuring each app’s traffic; stops by itself")
         }
     }
     private func sortButton(_ key: ResourceSort) -> some View {
@@ -511,7 +535,10 @@ struct PerformanceDashboard: View {
         if monitor.networkMeasured {
             metric(resourceRate(network), history: networkHistory, tint: networkTint, width: 84)
         } else {
-            unavailable(width: 84, help: "Starting nettop, Apple’s per-process network reader…")
+            unavailable(
+                width: 84,
+                help: monitor.networkUntil == nil
+                    ? "Click NETWORK above to measure each app’s traffic for a minute" : "Measuring…")
         }
     }
     private func unavailable(width: CGFloat, help: String) -> some View {

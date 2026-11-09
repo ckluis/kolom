@@ -23,6 +23,26 @@ public struct Column: Codable, Equatable, Identifiable {
     }
 }
 public enum Placement: String, CaseIterable { case before, after, above, below }
+
+/// Where a window sat in a strip, kept when it leaves so that if it comes back
+/// (an Accessibility gap, a display change) it returns to its stack, not the end.
+public struct WindowSlot: Equatable {
+    /// The others in its column, top to bottom.
+    public var columnMates: [String]
+    /// Its place in that column.
+    public var stackIndex: Int
+    /// The first window of the column to its left and to its right, if any.
+    public var leftNeighbor: String?
+    public var rightNeighbor: String?
+    public var width: Double
+    public init(columnMates: [String], stackIndex: Int, leftNeighbor: String?, rightNeighbor: String?, width: Double) {
+        self.columnMates = columnMates
+        self.stackIndex = stackIndex
+        self.leftNeighbor = leftNeighbor
+        self.rightNeighbor = rightNeighbor
+        self.width = width
+    }
+}
 public struct Workspace: Codable, Equatable {
     public var columns: [Column] = []
     public var focus: String?
@@ -67,6 +87,51 @@ public struct Workspace: Codable, Equatable {
         focus = source
         return true
     }
+    public func slot(of id: String) -> WindowSlot? {
+        guard let c = columnIndex(id), let t = columns[c].tiles.firstIndex(where: { $0.id == id }) else { return nil }
+        return WindowSlot(
+            columnMates: columns[c].tiles.map(\.id).filter { $0 != id }, stackIndex: t,
+            leftNeighbor: c > 0 ? columns[c - 1].tiles.first?.id : nil,
+            rightNeighbor: c + 1 < columns.count ? columns[c + 1].tiles.first?.id : nil, width: columns[c].width)
+    }
+
+    /// Puts a returning window back: into its old column when a former mate is
+    /// still there, otherwise as its own column beside a former neighbour, at its
+    /// old width. Returns false (leaving it where it is) when nothing it knew remains.
+    @discardableResult public mutating func restore(_ id: String, to slot: WindowSlot) -> Bool {
+        let hadFocus = focus
+        func place() -> Bool {
+            if let mate = slot.columnMates.first(where: { columnIndex($0) != nil }), let c = columnIndex(mate) {
+                // Its position among the mates that remain.
+                let above = slot.columnMates.prefix(slot.stackIndex).filter { mate in
+                    columns[c].tiles.contains { $0.id == mate }
+                }.count
+                var tile = Tile(id)
+                tile.weight = columns[c].tiles.reduce(0) { $0 + $1.weight } / Double(max(1, columns[c].tiles.count))
+                columns[c].tiles.insert(tile, at: min(above, columns[c].tiles.count))
+                return true
+            }
+            if let left = slot.leftNeighbor, let c = columnIndex(left) {
+                columns.insert(Column(width: slot.width, tiles: [Tile(id)]), at: c + 1)
+                return true
+            }
+            if let right = slot.rightNeighbor, let c = columnIndex(right) {
+                columns.insert(Column(width: slot.width, tiles: [Tile(id)]), at: c)
+                return true
+            }
+            return false
+        }
+        let snapshot = columns
+        if columnIndex(id) != nil { remove(id) }
+        if place() {
+            focus = hadFocus == nil || !windowIDs.contains(hadFocus!) ? id : hadFocus
+            return true
+        }
+        columns = snapshot
+        focus = hadFocus
+        return false
+    }
+
     public mutating func extract(_ id: String) {
         guard let c = columnIndex(id), columns[c].tiles.count > 1 else { return }
         let anchor = columns[c].tiles.first { $0.id != id }!.id

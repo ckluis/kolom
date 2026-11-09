@@ -34,7 +34,7 @@ struct PerformanceHelp: View {
                             "**CPU** is a share of the whole Mac: 100% is every core busy. Activity Monitor shows a share of one core, so its numbers are \(ProcessInfo.processInfo.activeProcessorCount)× these.",
                             "**GPU** is each app’s share of GPU time, as the GPU accounts it. Engines run side by side, so shares can add up past the GPU widget.",
                             "**Memory** is physical footprint; shared memory can be counted in more than one app.",
-                            "**Network** is bytes sent and received per second; processes without network activity show 0.",
+                            "**Network** per app is measured when you click its column, for a minute: Apple’s nettop, which counts it, uses about one CPU core while it runs. Processes without traffic show 0. The total in the NETWORK panel is always on and costs nothing.",
                             "**DisplayLink** screens cost work in DisplayLink’s own app and in WindowServer, which draws them; sort by GPU or CPU and read both.",
                             "Charts hold two minutes of real samples; a gap is a missing reading, never a guess.",
                         ])
@@ -57,7 +57,7 @@ struct PerformanceHelp: View {
                     section(
                         "Where the numbers come from", "lock.shield",
                         [
-                            "Process counters (libproc), the GPU’s own statistics (IOKit), and two Apple tools run as you while this panel is open: `nettop` for network and `ps` for macOS’s own processes.",
+                            "Process counters (libproc), the GPU’s own statistics (IOKit), and Apple’s `ps` (for macOS’s own processes) while this panel is open; `nettop` only during a network measurement you start.",
                             "Nothing runs while Performance is closed, nothing needs administrator access, and nothing leaves the Mac.",
                             "The kernel (kernel_task, which also runs drivers such as USB and DisplayLink’s) cannot be read without administrator access."
                                 + (unreadable > 0 ? " \(unreadable) processes exited before they could be read." : ""),
