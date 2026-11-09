@@ -29,14 +29,33 @@ final class ResourceMonitor: ObservableObject {
     @Published var detailsReady = false
     private var detailed = false
     @Published var networkMeasured = false
+    /// Per-process network is measured only on request, for a minute: nettop uses
+    /// about one CPU core for as long as it runs, however often it samples.
+    @Published private(set) var networkUntil: Date?
+    static let networkWindow: TimeInterval = 60
+    private var networkStop: DispatchWorkItem?
     private let processSampler = ProcessResourceSampler()
     private let networkSampler = NetworkSampler()
     func beginDetails() {
-        networkSampler.start()
         queue.async { [weak self] in self?.detailed = true }
     }
-    func endDetails() {
+    func measureNetwork() {
+        networkStop?.cancel()
+        networkSampler.start()
+        networkUntil = Date().addingTimeInterval(Self.networkWindow)
+        let stop = DispatchWorkItem { [weak self] in self?.stopNetwork() }
+        networkStop = stop
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.networkWindow, execute: stop)
+    }
+    func stopNetwork() {
+        networkStop?.cancel()
+        networkStop = nil
         networkSampler.stop()
+        networkUntil = nil
+        networkMeasured = false
+    }
+    func endDetails() {
+        stopNetwork()
         queue.async { [weak self] in
             self?.detailed = false
             self?.processSampler.reset()

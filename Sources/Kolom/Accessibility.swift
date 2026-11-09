@@ -212,7 +212,9 @@ final class AccessibilityBridge {
         frameGenerations.removeAll()
         Array(observers.keys).forEach(removeObserver)
     }
-    @discardableResult func setFrame(_ window: NativeWindow, _ frame: CGRect, resize: Bool = true) -> Bool {
+    @discardableResult func setFrame(_ window: NativeWindow, _ frame: CGRect, resize: Bool = true, retries: Int = 2)
+        -> Bool
+    {
         let generation = UUID()
         frameGenerations[window.id] = generation
         if !resize {
@@ -221,6 +223,13 @@ final class AccessibilityBridge {
             let status = AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, position)
             if status == .success {
                 writeFailures.remove(window.id)
+                return true
+            }
+            if status == .cannotComplete, retries > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + (retries == 2 ? 0.25 : 0.75)) { [weak self] in
+                    guard let self, self.frameGenerations[window.id] == generation else { return }
+                    self.setFrame(window, frame, resize: false, retries: retries - 1)
+                }
                 return true
             }
             writeFailures.insert(window.id)
@@ -276,6 +285,15 @@ final class AccessibilityBridge {
             return true
         }
         let s = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, dimensions)
+        // "Cannot complete" means the app was busy (a page loading, a modal opening).
+        // Try again shortly instead of reporting a refusal that is about to resolve.
+        if s == .cannotComplete, retries > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + (retries == 2 ? 0.25 : 0.75)) { [weak self] in
+                guard let self, self.frameGenerations[window.id] == generation else { return }
+                self.setFrame(window, frame, resize: true, retries: retries - 1)
+            }
+            return true
+        }
         // Let the app finish its native resize before correcting its origin.
         // A newer animation, resize or restoration request cancels this correction.
         if s == .success {

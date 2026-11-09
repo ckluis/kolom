@@ -1,3 +1,9 @@
+## 0.2.10 — 2026-11-09
+
+- Performance no longer costs most of a CPU core while open. Since 0.2.6 it ran Apple's `nettop` every two seconds for per-app network; `nettop` uses about 0.9 s of CPU per second it runs, so an open dashboard cost about 70% of one core (charged to `nettop`, not to Kolom). Per-app network is now measured when you click the NETWORK column header: for one minute, with a countdown, then it stops. Measured with the same harness: an open dashboard now costs about 4% of one core (was about 75%); the rail's readings alone about 0.2%.
+- A window that drops out of the layout and comes back returns to its place. A Stickies note left its three-note stack and came back as a new 640-point column after Safari: when a window was missing past the 10 s grace (or Accessibility briefly called it closed) it was forgotten, and when it was listed again it was treated as new and appended to the end of the strip. Kolom now remembers where a departed window sat for 30 minutes (its stack, its place in it, its neighbours, its width) and puts it back there, on its old display, without scrolling the strip to it. Drops and returns, with the reason, are kept in `window-events.json` in Kolom's Application Support folder.
+- An app that is momentarily busy (Safari loading a page) is no longer reported as refusing a resize: "cannot complete" is retried after 0.25 s and 0.75 s before it counts. A refusal that resolves no longer stays on the status line.
+
 ## 0.2.9 — 2026-11-09
 
 - The Disk Map is a wide panel beside Performance instead of a separate window: part of Kolom, with the strip making room for it. × or Escape at the top closes it; closing Performance closes both.

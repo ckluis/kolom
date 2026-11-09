@@ -527,6 +527,29 @@ final class KolomController: ObservableObject {
     /// Which rule paused and what it saw; logged only, never shown in the status.
     var pauseDetail: String?
     var pauseLogURL: URL { storage.appendingPathComponent("pause-log.json") }
+    /// Windows that left a strip, with where they were, for 30 minutes: one that is
+    /// listed again goes back to its stack instead of the end of the strip.
+    var departed: [String: (display: String, slot: WindowSlot, time: Date)] = [:]
+    var windowEventsURL: URL { storage.appendingPathComponent("window-events.json") }
+    /// Why windows left and came back, so a layout that "lost something" can be explained.
+    func logWindowEvent(_ event: String, id: String, detail: String) {
+        var log =
+            (try? Data(contentsOf: windowEventsURL)).flatMap {
+                try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]]
+            } ?? []
+        var entry: [String: Any] = [
+            "time": Date().timeIntervalSince1970, "event": event, "window": id, "detail": detail,
+            "build": BuildInfo.label,
+        ]
+        if let w = windows[id] {
+            entry["app"] = w.bundleID
+            entry["title"] = String(w.title.prefix(60))
+        }
+        log.append(entry)
+        if let data = try? JSONSerialization.data(withJSONObject: Array(log.suffix(60)), options: [.sortedKeys]) {
+            try? data.write(to: windowEventsURL, options: .atomic)
+        }
+    }
     /// Keep the last pauses on disk: a pause restores every window and removes the
     /// rails, which looks like a crash unless its reason can be read afterwards.
     func logPause(_ reason: String, detail: String? = nil) {
@@ -991,6 +1014,14 @@ final class KolomController: ObservableObject {
             hidden: offStrip.union(away).union(
                 retained.values.filter { bridge.unresponsivePIDs.contains($0.pid) }.map(\.id)), isAlive: isOpen)
         absentWindows = Set(fresh.keys).subtracting(discoveredIDs)
+        for (id, window) in retained where fresh[id] == nil && NSRunningApplication(processIdentifier: window.pid) != nil {
+            let reason =
+                bridge.isDestroyed(window.element)
+                ? "Accessibility reported the window closed"
+                : previouslyAbsent.contains(id)
+                    ? "missing from Accessibility past the 10 s grace" : "not listed and not alive"
+            logWindowEvent("dropped", id: id, detail: reason)
+        }
         // A window that is listed again missed the moves skipped while it was absent.
         let returned = previouslyAbsent.intersection(discoveredIDs)
         let found = discovered + fresh.values.filter { window in !discovered.contains(where: { $0.id == window.id }) }
@@ -1124,6 +1155,7 @@ final class KolomController: ObservableObject {
             return
         }
         let allIDs = Set(found.map(\.id)).union(held)
+        departed = departed.filter { Date().timeIntervalSince($0.value.time) < 30 * 60 }
         let previouslyAssigned = Set(workspaces.values.flatMap(\.windowIDs))
         var newlyRevealed: String?
         for d in displays {
@@ -1131,15 +1163,33 @@ final class KolomController: ObservableObject {
             let assigned = Set(workspaces.values.flatMap(\.windowIDs))
             for w in found where !assigned.contains(w.id) {
                 let target = launchTargets[w.pid].flatMap { $0.expires > Date() ? $0.display : nil }
+                // A window coming back belongs on the display it left, if that is still here.
+                let home = departed[w.id].flatMap { entry in displays.contains { $0.id == entry.display } ? entry.display : nil }
                 let destination =
-                    target
+                    target ?? home
                     ?? (!force && displays.contains(where: { $0.id == activeDisplay }) ? activeDisplay : nil)
                     ?? bestDisplay(for: w.frame)?.id
                 if destination == d.id { ids.append(w.id) }
             }
             var space = workspaces[d.id] ?? Workspace()
+            let before = space
             space.reconcile(ids, defaultWidth: min(640, max(300, viewport(d).width * 0.55)))
-            if !force, let opened = ids.last(where: { !previouslyAssigned.contains($0) }) {
+            for id in before.windowIDs where !space.windowIDs.contains(id) {
+                if let slot = before.slot(of: id) { departed[id] = (d.id, slot, Date()) }
+            }
+            var returnedHere: Set<String> = []
+            for id in space.windowIDs where !before.windowIDs.contains(id) {
+                guard let entry = departed[id], entry.display == d.id else { continue }
+                departed[id] = nil
+                if Date().timeIntervalSince(entry.time) < 30 * 60, space.restore(id, to: entry.slot) {
+                    // Back where it was: not a new window, so the strip does not jump to it.
+                    returnedHere.insert(id)
+                    logWindowEvent(
+                        "returned", id: id,
+                        detail: "back in its place after \(Int(Date().timeIntervalSince(entry.time))) s away")
+                }
+            }
+            if !force, let opened = ids.last(where: { !previouslyAssigned.contains($0) && !returnedHere.contains($0) }) {
                 space.reveal(opened, viewportWidth: viewport(d).width)
                 newlyRevealed = opened
                 changed = true
@@ -1380,8 +1430,16 @@ final class KolomController: ObservableObject {
                 }
             }
         }
-        if let error = bridge.lastError, !bridge.writeFailures.isEmpty { status = error }
+        if let error = bridge.lastError, !bridge.writeFailures.isEmpty {
+            status = error
+            showingWriteError = true
+        } else if showingWriteError, enabled {
+            // The refusal resolved; do not leave it on the status line.
+            showingWriteError = false
+            status = "Managing this Space · pause restores the original window positions"
+        }
     }
+    private var showingWriteError = false
     func scroll(displayID: String, delta: Double) {
         guard acting, let d = displays.first(where: { $0.id == displayID }) else { return }
         animation?.invalidate()
