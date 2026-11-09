@@ -1,3 +1,9 @@
+## 0.2.17 — 2026-11-09
+
+- **Locking the screen no longer makes Kolom forget your windows.** As the screen locked, Accessibility reported every window closed at once (cmux, two Stickies notes, Safari; `window-events.json`, 15:28:00). Kolom dropped them, and with them the display memory that would have returned cmux to its LG after a KVM switch; when the displays came back 34 minutes later the windows were treated as new and cmux stayed on the 1080p display. A window now counts as closed only when the WindowServer no longer has it too.
+- A departed window's place is kept for 12 hours (was 30 minutes), long enough for a KVM switch to another computer or a night with the screen locked.
+- Dropping a window onto a column that already holds three places it beside that column instead of refusing (“A column holds at most three windows”), so a drag always lands.
+
 ## 0.2.16 — 2026-11-09
 
 - **Every Space has its own strip.** Each display × Space keeps its own columns, widths and order, as if it were another display. Switching a Space on one display swaps only that display's strip; the others carry on (0.2.14 suspended Kolom on every display when any one switched Space, which took it off the bottom display when the top one switched). Windows on a Space not shown wait untouched and are where you left them when you return; a window moved with Mission Control joins the strip of the Space it is in; a DisplayLink reconnect that renumbers a display's Spaces keeps their strips, matched by position. Strips are saved in `space-strips.json`. Without the WindowServer's Space list, a Space change pauses as before.
