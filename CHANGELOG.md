@@ -1,3 +1,7 @@
+## 0.2.18 — 2026-11-09
+
+- **Dragging a window by its title bar to another display works again.** Kolom treats a window move as yours only if the press was on that window's title bar or edge; it took "that window" to be the focused one, so pressing on a background window (the usual way to drag one, as the press comes before it is focused) counted as the app moving itself, and Kolom put the window back. It also counted only the top 36 points, while cmux's and Safari's bars with tabs are taller. The window under the pointer is now asked of the WindowServer, focused or not, and the top area counts down to 15% of the window's height (36–120 points). Dragging a rail icon to another display's rail was unaffected.
+
 ## 0.2.17 — 2026-11-09
 
 - **Locking the screen no longer makes Kolom forget your windows.** As the screen locked, Accessibility reported every window closed at once (cmux, two Stickies notes, Safari; `window-events.json`, 15:28:00). Kolom dropped them, and with them the display memory that would have returned cmux to its LG after a KVM switch; when the displays came back 34 minutes later the windows were treated as new and cmux stayed on the 1080p display. A window now counts as closed only when the WindowServer no longer has it too.
