@@ -569,6 +569,7 @@ private struct DiskMapKeys: View {
     let close: () -> Void
     private let keys: [(String, String)] = [
         ("Click", "select"), ("Double-click · Enter", "go into a folder"), ("Scroll up · down", "go in · go up"),
+        ("Pinch apart · together", "go in · go up"),
         ("Backspace · Esc", "go up (Esc clears a filter first)"), ("← → ↑ ↓ · Tab", "move between tiles"),
         ("⌘[ · ⌘]", "back · forward"), ("[ · ]", "fewer · more levels"), ("T", "Size, Files, Age"),
         (".", "show or hide dot-folders"), ("/", "filter by name"), ("Space · X · ⌘-click", "mark or unmark"),
