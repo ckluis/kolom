@@ -28,6 +28,7 @@ struct DiskMapView: View {
     var body: some View {
         VStack(spacing: 0) {
             DiskMapTopBar(model: model).padding(.horizontal, 14).frame(height: 48)
+            DiskMapControls(model: model).padding(.horizontal, 14).padding(.bottom, 8)
             Divider()
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
@@ -36,7 +37,9 @@ struct DiskMapView: View {
                         if model.root == nil { DiskMapProgress(model: model) }
                     }
                     if model.notice != nil || model.removing != nil { DiskMapNotice(model: model) }
-                    DiskMapLegend().padding(.horizontal, 12).padding(.vertical, 7)
+                    Group {
+                        if model.measure == .age { AgeLegend() } else { DiskMapLegend() }
+                    }.padding(.horizontal, 12).padding(.vertical, 7)
                 }
                 Divider()
                 DiskMapSidebar(model: model).frame(width: 300)
@@ -46,6 +49,7 @@ struct DiskMapView: View {
         .preferredColorScheme(theme == "Light" ? .light : .dark)
         .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1) }
         .sheet(isPresented: $model.reviewing) { DiskMapReview(model: model) }
+        .sheet(isPresented: $model.showingHelp) { DiskMapKeys(close: { model.showingHelp = false }) }
     }
 }
 
@@ -476,6 +480,11 @@ private struct DiskMapReview: View {
                 }
                 Text(ProcessGrouping.abbreviate(node.path, home: model.policy.home)).font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
+                if let git = model.gitNotes[node.path] {
+                    Label(git, systemImage: git.contains("clean") ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: git.contains("clean") ? .regular : .semibold))
+                        .foregroundColor(git.contains("clean") ? .secondary : Color(nsColor: DiskMapPalette.danger))
+                }
                 if let warning = model.policy.warning(for: node) {
                     Label(warning, systemImage: "exclamationmark.triangle").font(.system(size: 10))
                         .foregroundColor(Color(nsColor: DiskMapPalette.danger))
@@ -495,5 +504,91 @@ private struct DiskMapReview: View {
         alert.addButton(withTitle: "Delete Permanently")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn { model.removeMarked(permanently: true) }
+    }
+}
+
+// MARK: Views, depth, hidden, filter
+
+private struct DiskMapControls: View {
+    @ObservedObject var model: DiskMapModel
+    @FocusState private var filterFocused: Bool
+    var body: some View {
+        HStack(spacing: 12) {
+            Picker("", selection: $model.measure) {
+                ForEach(DiskMeasure.allCases, id: \.self) { Text($0.label).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 180)
+                .help("What tile areas measure; Age colours by last write · T")
+            HStack(spacing: 4) {
+                Text("Depth").foregroundColor(.secondary)
+                Button { model.depth = max(1, model.depth - 1) } label: { Image(systemName: "minus") }
+                    .disabled(model.depth <= 1).help("Fewer levels · [")
+                Text("\(model.depth)").monospacedDigit().frame(width: 12)
+                Button { model.depth = min(6, model.depth + 1) } label: { Image(systemName: "plus") }
+                    .disabled(model.depth >= 6).help("More levels · ]")
+            }.buttonStyle(.borderless)
+            Toggle("Hidden", isOn: $model.showHidden).toggleStyle(.checkbox)
+                .help("Show dot-folders and dot-files (often caches and toolchains) · .")
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                TextField("Filter by name  /", text: $model.filter).textFieldStyle(.plain).focused($filterFocused)
+                    .onSubmit { filterFocused = false }
+                if !model.filter.isEmpty {
+                    Button { model.filter = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain).foregroundColor(.secondary)
+                }
+            }.padding(5).background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.05)))
+                .frame(maxWidth: 260)
+            Spacer(minLength: 0)
+            Button { model.showingHelp = true } label: { Image(systemName: "questionmark.circle") }
+                .buttonStyle(.borderless).help("Every key · ?")
+        }.font(.system(size: 11)).controlSize(.small)
+            .onChange(of: model.filterFocus) { _ in filterFocused = true }
+    }
+}
+
+private struct AgeLegend: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Last write").foregroundColor(.secondary)
+            ForEach([DiskAge.week, .month, .quarter, .year, .older], id: \.self) { age in
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(nsColor: DiskMapPalette.age(age, level: 0, dark: scheme == .dark)))
+                        .frame(width: 10, height: 10)
+                    Text(age.label).fixedSize()
+                }
+            }
+            Spacer(minLength: 0)
+        }.font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
+    }
+}
+
+/// Every key, from ? or the button.
+private struct DiskMapKeys: View {
+    let close: () -> Void
+    private let keys: [(String, String)] = [
+        ("Click", "select"), ("Double-click · Enter", "go into a folder"), ("Scroll up · down", "go in · go up"),
+        ("Backspace · Esc", "go up (Esc clears a filter first)"), ("← → ↑ ↓ · Tab", "move between tiles"),
+        ("⌘[ · ⌘]", "back · forward"), ("[ · ]", "fewer · more levels"), ("T", "Size, Files, Age"),
+        (".", "show or hide dot-folders"), ("/", "filter by name"), ("Space · X · ⌘-click", "mark or unmark"),
+        ("C", "review what is marked"), ("O · right-click", "reveal in Finder"), ("⌘R", "scan again"), ("?", "these keys"),
+    ]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Disk Map keys").font(.system(size: 15, weight: .semibold))
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+                ForEach(keys, id: \.0) { key, action in
+                    GridRow {
+                        Text(key).font(.system(size: 11, weight: .medium, design: .monospaced))
+                        Text(action).font(.system(size: 11)).foregroundColor(.secondary)
+                    }
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Done", action: close).keyboardShortcut(.defaultAction)
+            }
+        }.padding(20).frame(width: 420)
     }
 }

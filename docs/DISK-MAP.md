@@ -12,7 +12,7 @@ credited in THIRD-PARTY-NOTICES.md.
 |---|---|---|
 | 1 | 0.2.8 | Window (a panel beside Performance since 0.2.9), parallel scan with live overview, squarified treemap coloured by kind, reclaimable hatch, selection, go in / up with animated zoom, breadcrumbs with sibling menus, keyboard, back/forward, side panel (selection, Worth a look, disk), Storage panel opens it |
 | 2 | 0.2.9 | Marking (no double counting, marks absorb marks inside them), review screen, Move to Trash (default) and Delete permanently (asks), safety rules, rescan and space actually gained |
-| 3 | 0.2.10 | Scroll-to-zoom-and-enter, Age and Files modes, filter `/`, choose any folder (⌘O), hidden and apparent-size toggles, depth `[` `]`, key help `?` |
+| 3 | 0.2.20 | Size / Files / Age views, depth `[` `]` (1–6), filter `/`, scroll to go in and up, hidden toggle `.`, key help `?`, marks kept between openings, git status of marked checkouts in the review. (Choose a folder shipped in 0.2.8; apparent size left out: it needs another number per file in the scan.) |
 
 ## Scan
 
