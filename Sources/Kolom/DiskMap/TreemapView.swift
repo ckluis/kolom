@@ -357,13 +357,31 @@ final class TreemapView: NSView {
         guard Date() > scrollPausedUntil, event.momentumPhase == [] else { return }
         let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
         scrollAccumulated += delta
-        guard abs(scrollAccumulated) > 36 else { return }
+        guard abs(scrollAccumulated) > 24 else { return }
         let inward = scrollAccumulated > 0
         scrollAccumulated = 0
+        zoom(inward: inward, at: convert(event.locationInWindow, from: nil))
+    }
+
+    /// Pinching does the same as scrolling: apart goes in, together goes up.
+    private var pinchAccumulated: CGFloat = 0
+
+    override func magnify(with event: NSEvent) {
+        guard model?.root != nil else { return super.magnify(with: event) }
+        if event.phase == .began { pinchAccumulated = 0 }
+        guard Date() > scrollPausedUntil else { return }
+        pinchAccumulated += event.magnification
+        guard abs(pinchAccumulated) > 0.12 else { return }
+        let inward = pinchAccumulated > 0
+        pinchAccumulated = 0
+        zoom(inward: inward, at: convert(event.locationInWindow, from: nil))
+    }
+
+    /// One step in (into the folder at this level under the pointer) or out.
+    private func zoom(inward: Bool, at point: CGPoint) {
+        guard let model else { return }
         scrollPausedUntil = Date().addingTimeInterval(0.45)
         if inward {
-            let point = convert(event.locationInWindow, from: nil)
-            // The folder at this level under the pointer.
             var hit = node(at: point)
             while let current = hit, let parent = current.parent, parent !== model.focus { hit = parent }
             if let folder = hit, folder.isFolder { model.enter(folder) }

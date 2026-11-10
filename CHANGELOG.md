@@ -1,3 +1,7 @@
+## 0.2.21 — 2026-11-10
+
+- **Pinch to zoom in the Disk Map.** Pinching apart over a folder goes into it and pinching together goes up, like scrolling; zooming with a trackpad pinch did nothing before. Scrolling takes a slightly shorter swipe (24 points instead of 36).
+
 ## 0.2.20 — 2026-11-09
 
 - **Disk Map, phase 3.** Size, Files and Age views (Files sizes tiles by file count and labels them in files; Age colours by last write, from this week to older), depth 1–6 (`[` `]`), a hidden toggle (`.`), a name filter (`/`) that keeps matches and their folders in colour, scroll up to go into a folder and down to go up, and a key sheet (`?`).
