@@ -1,3 +1,7 @@
+## 0.2.22 — 2026-11-11
+
+- **Leaving full screen keeps the strip's widths.** Full screen gives a window a Space of its own, and macOS removes that Space as it shows the one beneath. When Kolom read the Spaces after the removal, it took the missing Space for a renumbering and kept the full-screen Space's empty strip, so the windows of the strip beneath (cmux and Safari, `display-trace.json` 18:18) came back as new 640-point columns. The strip beneath now returns as it was, with any window opened in full screen after it. Whether it worked depended on timing: the same exit four minutes earlier was read before the removal and kept its widths.
+
 ## 0.2.21 — 2026-11-10
 
 - **Pinch to zoom in the Disk Map.** Pinching apart over a folder goes into it and pinching together goes up, like scrolling; zooming with a trackpad pinch did nothing before. Scrolling takes a slightly shorter swipe (24 points instead of 36).
