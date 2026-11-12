@@ -68,10 +68,24 @@ public struct SpaceStrips: Codable, Equatable {
                 continue
             }
             guard before != now.current else { continue }
-            // The shown Space is gone (removed, or renumbered with no way to match it):
-            // the strip on screen is that same place; keep it.
+            // The shown Space is gone. Leaving full screen removes the full-screen Space
+            // as macOS shows the Space beneath it; when Kolom reads the Spaces after that,
+            // the Space it came from is no longer listed. That Space's strip waits here:
+            // it returns as it was, with any windows of the strip on screen after it
+            // (2026-11-11: read the other way, cmux and Safari came back at 640 points).
+            // With no strip waiting (a Space renumbered with no way to match it), the
+            // strip on screen is that same place; keep it.
             guard now.ordered.contains(before) else {
                 shown[display] = now.current
+                guard var returning = stashed[display]?.removeValue(forKey: now.current) else { continue }
+                let outgoing = workspaces[display] ?? Workspace()
+                var known = Set(returning.windowIDs)
+                for var column in outgoing.columns {
+                    column.tiles.removeAll { !known.insert($0.id).inserted }
+                    if !column.tiles.isEmpty { returning.columns.append(column) }
+                }
+                workspaces[display] = returning
+                changed.insert(display)
                 continue
             }
             let outgoing = workspaces[display] ?? Workspace()

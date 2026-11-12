@@ -56,6 +56,28 @@ func spaceStripChecks() throws {
     XCTAssertEqual(removal.elsewhere, ["a"])
     _ = removal.update(["d": S(current: 2, ordered: [2])], workspaces: &ws)
     XCTAssertTrue(removal.elsewhere.isEmpty)
+    // Leaving full screen: macOS removes the full-screen Space as it shows the one
+    // beneath, and Kolom may read the Spaces only after it is gone. The strip beneath
+    // returns with its widths, not as new 640-point columns.
+    var full = SpaceStrips()
+    full.start(["lg": S(current: 915, ordered: [915])])
+    var beneath = strip(["cmux", "safari"])
+    beneath.setWidth("cmux", 1733)
+    beneath.setWidth("safari", 1527)
+    var lg = ["lg": beneath]
+    XCTAssertEqual(full.update(["lg": S(current: 926, ordered: [915, 926])], workspaces: &lg), ["lg"])
+    lg["lg"]!.reconcile(["zoom"], defaultWidth: 640)  // a window opened in full screen
+    XCTAssertEqual(full.update(["lg": S(current: 915, ordered: [915])], workspaces: &lg), ["lg"])
+    XCTAssertEqual(lg["lg"]!.windowIDs, ["cmux", "safari", "zoom"])
+    XCTAssertEqual(lg["lg"]!.columns.map(\.width), [1733, 1527, 640])
+    XCTAssertTrue(full.elsewhere.isEmpty)
+    // Seen leaving while the full-screen Space is still listed: the same result.
+    var listed = SpaceStrips()
+    listed.start(["lg": S(current: 915, ordered: [915])])
+    lg = ["lg": beneath]
+    _ = listed.update(["lg": S(current: 926, ordered: [915, 926])], workspaces: &lg)
+    XCTAssertEqual(listed.update(["lg": S(current: 915, ordered: [915, 926])], workspaces: &lg), ["lg"])
+    XCTAssertEqual(lg["lg"], beneath)
     // Kept across a restart.
     let saved = try JSONEncoder().encode(strips)
     XCTAssertEqual(try JSONDecoder().decode(SpaceStrips.self, from: saved), strips)
